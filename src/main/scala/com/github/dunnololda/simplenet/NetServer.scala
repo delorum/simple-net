@@ -1,11 +1,18 @@
 package com.github.dunnololda.simplenet
 
-import java.net.{DatagramSocket, ServerSocket, Socket}
+import java.net._
 import akka.actor.{Props, ActorSystem, Actor, ActorRef}
 import java.io.{InputStreamReader, BufferedReader, OutputStreamWriter, PrintWriter}
+import scala.concurrent._
 import scala.concurrent.duration._
+import akka.pattern.ask
+import collection.mutable
+
+// connection listener messages
 
 case object Listen
+
+// connection handler messages
 
 case object Check
 
@@ -13,37 +20,42 @@ case object Ping
 
 case class Send(message: State)
 
-case class NewClient(client_id: Long, client: ActorRef)
-
-case class NewMessage(client_id: Long, client: ActorRef, message: State)
-
 case object Disconnect
 
-case class ClientDisconnected(client_id: Long, client: ActorRef)
+// client handler messages
 
-case object StopServer
+case object RetrieveEvent
 
-case class ServerHandler(server_handler:ActorRef)
+case class SendToClient(client_id: Long, message: State)
+
+case class DisconnectClient(client_id: Long)
+
+sealed abstract class NetworkEvent
+
+case class NewClient(client_id: Long, client: ActorRef) extends NetworkEvent
+
+case class NewMessage(client_id: Long, client: ActorRef, message: State) extends NetworkEvent
+
+case class ClientDisconnected(client_id: Long, client: ActorRef) extends NetworkEvent
+
+case object ServerConnected extends NetworkEvent
+
+case object ServerDisconnected extends NetworkEvent
+
+case class NewServerMessage(data:State) extends NetworkEvent
+
+case object NoNewEvents extends NetworkEvent
 
 object NetServer {
-  def apply(port:Int, ping_timeout:Long, handler:ActorRef) = new NetServer(port, ping_timeout, handler)
-  /*def apply(port:Int = 9800, ping_timeout:Long = 0, handler_system:ActorSystem = ActorSystem("default-handler-system"), actor:Actor) = new NetServer(port, ping_timeout, handler_system, actor)*/
-  def apply(port:Int, ping_timeout:Long, handler_system_name:String, actor: => Actor) = new NetServer(port, ping_timeout, handler_system_name, actor)
+  def apply(port: Int, ping_timeout: Long = 0) = new NetServer(port, ping_timeout)
 }
 
-class NetServer(port: Int, ping_timeout:Long, handler: ActorRef) {
-  /*def this(port: Int = 9800, ping_timeout:Long = 0, handler_system: ActorSystem = ActorSystem("default-handler-system"), actor:Actor) {
-    this(port, ping_timeout, handler_system.actorOf(Props(actor)))
-  }*/
-
-  def this(port: Int, ping_timeout:Long, handler_system_name: String = "default-handler-system", actor: => Actor) {
-    this(port, ping_timeout, ActorSystem(handler_system_name).actorOf(Props(actor)))
-  }
-
+class NetServer(port: Int, ping_timeout: Long = 0) {
   private val log = MySimpleLogger(this.getClass.getName)
 
   def nextAvailablePort(port: Int): Int = {
-    def available(port: Int): Boolean = { // TODO: return Option[Int]: None if no available port found within some range
+    def available(port: Int): Boolean = {
+      // TODO: return Option[Int]: None if no available port found within some range
       var ss: ServerSocket = null
       var ds: DatagramSocket = null
       try {
@@ -71,17 +83,27 @@ class NetServer(port: Int, ping_timeout:Long, handler: ActorRef) {
     }
   }
 
+  private val listen_port = nextAvailablePort(port)
+
+  def listenPort = listen_port
+
   private val format = new java.text.SimpleDateFormat("yyyyMMddHHmmss")
   private val moment = format.format(new java.util.Date())
 
-  private val connection_listener = ActorSystem("connection-listener-" + moment)  // is it necessary to have unique names for actor systems and/or actors? what are the issues if they are not?
+  private val connection_listener = ActorSystem("netserver-listener-" + moment)
+  // is it necessary to have unique names for actor systems and/or actors? what are the issues if they are not?
+  private val handler = connection_listener.actorOf(Props(new ClientHandler))
+
   connection_listener.actorOf(Props(new Actor {
     override def preStart() {
       log.info("starting actor " + self.path.toString)
-      self ! Listen
+      //self ! Listen
+      import scala.concurrent.ExecutionContext.Implicits.global
+      context.system.scheduler.schedule(initialDelay = (0 seconds), interval = (100 milliseconds)) {
+        self ! Listen
+      }
     }
 
-    private val listen_port = nextAvailablePort(port)
     private val server_socket = new ServerSocket(listen_port)
 
     private var client_id: Long = 0
@@ -101,12 +123,32 @@ class NetServer(port: Int, ping_timeout:Long, handler: ActorRef) {
     }
   }))
 
+  def newEvent: NetworkEvent = {
+    Await.result(handler.ask(RetrieveEvent)(timeout = (60000 milliseconds)), 60000 milliseconds).asInstanceOf[NetworkEvent]
+  }
+
+  def sendToClient(client_id: Long, message: State) {
+    handler ! SendToClient(client_id, message)
+  }
+
+  def sendToAll(message: State) {
+    handler ! Send(message)
+  }
+
+  def disconnectClient(client_id:Long) {
+    handler ! DisconnectClient(client_id)
+  }
+
+  def disconnectAll() {
+    handler ! Disconnect
+  }
+
   def stop() {
     connection_listener.shutdown()
   }
 }
 
-class ConnectionHandler(id: Long, socket: Socket, ping_timeout:Long = 0, handler: ActorRef) extends Actor {
+class ConnectionHandler(id: Long, socket: Socket, ping_timeout: Long = 0, handler: ActorRef) extends Actor {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream, "UTF-8"))
@@ -131,6 +173,7 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout:Long = 0, handler
   }
 
   private var last_interaction_moment = 0l
+
   def receive = {
     case Check =>
       if (in.ready) {
@@ -163,5 +206,32 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout:Long = 0, handler
       }
     case Disconnect =>
       context.stop(self)
+  }
+}
+
+class ClientHandler extends Actor {
+  private val network_events = collection.mutable.ArrayBuffer[NetworkEvent]()
+  private val clients = mutable.HashMap[Long, ActorRef]()
+
+  def receive = {
+    case event@NewClient(client_id, client_actor) =>
+      clients += (client_id -> client_actor)
+      network_events += event
+    case event@ClientDisconnected(client_id, client) =>
+      clients -= client_id
+      network_events += event
+    case network_event: NetworkEvent =>
+      network_events += network_event
+    case RetrieveEvent =>
+      if (network_events.isEmpty) sender ! NoNewEvents
+      else sender ! network_events.remove(0)
+    case SendToClient(client_id, message) =>
+      clients.get(client_id).foreach(client => client ! Send(message))
+    case Send(message) =>
+      clients.values.foreach(client => client ! Send(message))
+    case DisconnectClient(client_id) =>
+      clients.get(client_id).foreach(client => client ! Disconnect)
+    case Disconnect =>
+      clients.values.foreach(client => client ! Disconnect)
   }
 }
