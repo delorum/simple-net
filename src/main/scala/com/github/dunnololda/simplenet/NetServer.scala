@@ -26,17 +26,21 @@ case object Disconnect
 
 case object RetrieveEvent
 
+case object WaitForEvent
+
 case class SendToClient(client_id: Long, message: State)
 
 case class DisconnectClient(client_id: Long)
 
 sealed abstract class NetworkEvent
 
-case class NewClient(client_id: Long, client: ActorRef) extends NetworkEvent
+case class NewConnection(client_id: Long, client: ActorRef) extends NetworkEvent
 
-case class NewMessage(client_id: Long, client: ActorRef, message: State) extends NetworkEvent
+case class NewClient(client_id: Long) extends NetworkEvent
 
-case class ClientDisconnected(client_id: Long, client: ActorRef) extends NetworkEvent
+case class NewMessage(client_id: Long, message: State) extends NetworkEvent
+
+case class ClientDisconnected(client_id: Long) extends NetworkEvent
 
 case object ServerConnected extends NetworkEvent
 
@@ -118,13 +122,17 @@ class NetServer(port: Int, ping_timeout: Long = 0) {
         val socket = server_socket.accept()
         val new_client_id = nextClientId
         val new_client = context.actorOf(Props(new ConnectionHandler(new_client_id, socket, ping_timeout, handler)))
-        handler ! NewClient(new_client_id, new_client)
+        handler ! NewConnection(new_client_id, new_client)
         self ! Listen
     }
   }))
 
   def newEvent: NetworkEvent = {
-    Await.result(handler.ask(RetrieveEvent)(timeout = (60000 milliseconds)), 60000 milliseconds).asInstanceOf[NetworkEvent]
+    Await.result(handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+  }
+
+  def waitNewEvent: NetworkEvent = {
+    Await.result(handler.ask(WaitForEvent)(timeout = (1000 days)), 1000 days).asInstanceOf[NetworkEvent]
   }
 
   def sendToClient(client_id: Long, message: State) {
@@ -169,7 +177,7 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout: Long = 0, handle
 
   override def postStop() {
     socket.close()
-    handler ! ClientDisconnected(id, self)
+    handler ! ClientDisconnected(id)
   }
 
   private var last_interaction_moment = 0l
@@ -181,7 +189,7 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout: Long = 0, handle
           val message = in.readLine
           val received_data = State.fromJsonStringOrDefault(message, State(("raw" -> message)))
           if (!received_data.contains("ping")) {
-            handler ! NewMessage(id, self, received_data)
+            handler ! NewMessage(id, received_data)
           }
           last_interaction_moment = System.currentTimeMillis()
         } catch {
@@ -212,19 +220,33 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout: Long = 0, handle
 class ClientHandler extends Actor {
   private val network_events = collection.mutable.ArrayBuffer[NetworkEvent]()
   private val clients = mutable.HashMap[Long, ActorRef]()
+  private var event_waiter:Option[ActorRef] = None
 
   def receive = {
-    case event@NewClient(client_id, client_actor) =>
+    case event @ NewConnection(client_id, client_actor) =>
       clients += (client_id -> client_actor)
-      network_events += event
-    case event@ClientDisconnected(client_id, client) =>
+      if (event_waiter.nonEmpty) {
+        event_waiter.get ! NewClient(client_id)
+        event_waiter = None
+      }
+      else network_events += NewClient(client_id)
+    case event @ ClientDisconnected(client_id) =>
       clients -= client_id
-      network_events += event
-    case network_event: NetworkEvent =>
-      network_events += network_event
+      if (event_waiter.nonEmpty) {
+        event_waiter.get ! event
+        event_waiter = None
+      } else network_events += event
+    case event: NetworkEvent =>
+      if (event_waiter.nonEmpty) {
+        event_waiter.get ! event
+        event_waiter = None
+      } else network_events += event
     case RetrieveEvent =>
       if (network_events.isEmpty) sender ! NoNewEvents
       else sender ! network_events.remove(0)
+    case WaitForEvent =>
+      if (network_events.nonEmpty) sender ! network_events.remove(0)
+      else event_waiter = Some(sender)
     case SendToClient(client_id, message) =>
       clients.get(client_id).foreach(client => client ! Send(message))
     case Send(message) =>

@@ -2,7 +2,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.github.dunnololda</groupId>
   <artifactId>simple-net</artifactId>
-  <version>0.1</version>
+  <version>1.0</version>
   <name>${project.artifactId}</name>
   <description>My wonderfull scala app</description>
   <inceptionYear>2010</inceptionYear>
@@ -20,6 +20,7 @@
     <encoding>UTF-8</encoding>
     <scala.version>2.10.1</scala.version>
     <akka.scala.version>2.10</akka.scala.version>
+    <github.global.server>github</github.global.server>
   </properties>
 
   <repositories>
@@ -120,6 +121,70 @@
           </includes>
         </configuration>
       </plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jar-plugin</artifactId>
+            <version>2.3.1</version>
+            <configuration>
+                <!--<archive>
+                    <manifest>
+                        <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                    </manifest>
+                    <manifestEntries>
+                        <Implementation-Build>${buildNumber}</Implementation-Build>
+                    </manifestEntries>
+                </archive>-->
+                <finalName>${project.artifactId}_${scala.version}</finalName>
+            </configuration>
+        </plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>2.1.2</version>
+            <configuration>
+                <finalName>${project.artifactId}_${scala.version}</finalName>
+            </configuration>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>jar</goal>
+                        <goal>test-jar</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+        <plugin>
+            <groupId>com.github.github</groupId>
+            <artifactId>site-maven-plugin</artifactId>
+            <version>0.8</version>
+            <configuration>
+                <message>Maven artifacts for ${project.artifactId} ${project.version}</message>  <!-- git commit message -->
+                <noJekyll>true</noJekyll>                                  <!-- disable webpage processing -->
+                <outputDirectory>${project.build.directory}/mvn-repo</outputDirectory> <!-- matches distribution management repository url above -->
+                <branch>refs/heads/master</branch>                       <!-- remote branch name -->
+                <includes><include>**/*</include></includes>
+                <repositoryName>mvn-repo</repositoryName>      <!-- github repo name -->
+                <repositoryOwner>dunnololda</repositoryOwner>    <!-- github username  -->
+                <merge>true</merge>
+            </configuration>
+            <executions>
+                <!-- run site-maven-plugin's 'site' target as part of the build's normal 'deploy' phase -->
+                <execution>
+                    <goals>
+                        <goal>site</goal>
+                    </goals>
+                    <phase>deploy</phase>
+                </execution>
+            </executions>
+        </plugin>
     </plugins>
   </build>
+
+    <distributionManagement>
+        <repository>
+            <id>internal.repo</id>
+            <name>Temporary Staging Repository</name>
+            <url>file://${project.build.directory}/mvn-repo</url>
+        </repository>
+    </distributionManagement>
 </project>
