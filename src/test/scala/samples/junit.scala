@@ -3,25 +3,18 @@ package samples
 import org.junit._
 import Assert._
 import com.github.dunnololda.simplenet._
-import akka.actor.{Props, ActorSystem, ActorRef, Actor}
-import collection.mutable
-import com.github.dunnololda.simplenet.NewMessage
-import com.github.dunnololda.simplenet.NewConnection
-import com.github.dunnololda.simplenet.Send
-import concurrent.Await
 
 @Test
 class AppTest {
 
     @Test
     def testOK() {
-      val log = MySimpleLogger(this.getClass.getName)
-
       // arithmetic server and client
       val server = NetServer(9000, 60000)
       val client = NetClient("localhost", server.listenPort, 60000)
 
-      val errors = (1 to 20).foldLeft(0) { case (res, i) =>
+      client.waitConnection()
+      (1 to 20).foreach { i =>
         val i1 = (math.random*100).toInt
         val i2 = (math.random*100).toInt
         val (str_op, answer) = (math.random*4).toInt match {
@@ -33,7 +26,7 @@ class AppTest {
         }
         val question = State("a" -> i1, "b" -> i2, "op" -> str_op)
         client.send(question)
-        server.waitNewEvent match {
+        server.waitNewEvent {
           case NewMessage(client_id, client_question) =>
             (for {
               a <- client_question.value[Float]("a")
@@ -50,23 +43,19 @@ class AppTest {
                 }
               case None => server.sendToClient(client_id, State("result" -> "unknown data"))
             }
-          case _ =>
         }
-        client.waitNewEvent match {
+        client.waitNewEvent {
           case NewServerMessage(server_answer) =>
             server_answer.value[Float]("result") match {
-              case Some(result) => if(result != answer) res+1 else res
-              case None => res
+              case Some(result) => assertTrue(result == answer)
+              case None => assertTrue(false)
             }
-          case _ => res
         }
       }
-      assertTrue(errors == 0)
+
+      assertTrue(server.clientIds.length == 1)
+      assertTrue(client.isConnected)
     }
-
-//    @Test
-//    def testKO() = assertTrue(false)
-
 }
 
 

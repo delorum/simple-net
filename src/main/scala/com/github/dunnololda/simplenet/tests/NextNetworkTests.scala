@@ -20,7 +20,7 @@ object NextNetworkTests extends App {
     }
     val question = State("a" -> i1, "b" -> i2, "op" -> str_op)
     client.send(question)
-    server.waitNewEvent match {
+    server.waitNewEvent {
       case NewMessage(client_id, client_question) =>
         (for {
           a <- client_question.value[Float]("a")
@@ -37,15 +37,13 @@ object NextNetworkTests extends App {
             }
           case None => server.sendToClient(client_id, State("result" -> "unknown data"))
         }
-      case _ =>
     }
-    client.waitNewEvent match {
+    client.waitNewEvent {
       case NewServerMessage(server_answer) =>
         server_answer.value[Float]("result") match {
           case Some(result) => if(result != answer) res+1 else res
           case None => res
         }
-      case _ => res
     }
   }
   println(errors)

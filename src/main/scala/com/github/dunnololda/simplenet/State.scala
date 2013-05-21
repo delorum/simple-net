@@ -1,21 +1,29 @@
 package com.github.dunnololda.simplenet
 
-import collection.mutable
+import collection.{GenTraversableOnce, immutable, mutable}
 
 /**
  * Represents JSON Object
  */
 // TODO: add example usages and tell about alphabetical order for keys in patterns!
-class State(args:Any*) extends mutable.HashMap[String, Any] {
+class State(args:Any*) extends Map[String, Any] {
   //private val log = MySimpleLogger(this.getClass.getName)
   
-  add(args:_*)
+  //add(args:_*)
+  private val inner_map:Map[String, Any] = {
+    val pewpew = args.flatMap(_ match {
+      case elem:(String, Any) => List(elem)
+      case elem:State => elem.toList
+      case elem:Any => List((elem.toString -> true))
+    })
+    Map(pewpew:_*)
+  }
 
   def neededKeys(foreach_func:PartialFunction[(String, Any), Any]) {  // maybe rename this func
     foreach(elem => if(foreach_func.isDefinedAt(elem)) foreach_func(elem))
   }
   
-  def add(args:Any*):this.type = {
+  /*private def add(args:Any*):this.type = {
     args.foreach(arg => {
       arg match {
         case elem:(String, Any) => this += (elem)
@@ -24,8 +32,8 @@ class State(args:Any*) extends mutable.HashMap[String, Any] {
       }
     })
     this
-  }  
-  def addJson(json:String) {this ++= State.fromJsonStringOrDefault(json)}
+  }  */
+  /*def addJson(json:String) {this ++= State.fromJsonStringOrDefault(json)}*/
 
   override def toString() = mkString("State(", ", ", ")")
 
@@ -121,6 +129,16 @@ class State(args:Any*) extends mutable.HashMap[String, Any] {
       case None => default
     }
   }
+
+  def get(key: String): Option[Any] = inner_map.get(key)
+
+  def iterator: Iterator[(String, Any)] = inner_map.iterator
+
+  def -(key: String): State = State(iterator.toSeq.filterNot(_._1 == key):_*)
+
+  def +[B1 >: Any](kv: (String, B1)): State = State((kv :: iterator.toList):_*)
+
+  override def ++[B1 >: Any](xs: GenTraversableOnce[(String, B1)]): State = State((iterator.toList ::: xs.toList):_*)
 }
 
 object State {

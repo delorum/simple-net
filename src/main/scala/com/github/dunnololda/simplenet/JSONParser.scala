@@ -9,7 +9,8 @@ class JSONParser extends JavaTokenParsers {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private lazy val obj: Parser[State] =
-    "{"~> repsep(member, ",") <~"}" ^^ (State() ++= _)  // State instead of Map[String, Any] because of issues with deserialization from json of structures like array of objects
+    // State instead of Map[String, Any] because of issues with deserialization from json of structures like array of objects
+    "{"~> repsep(member, ",") <~"}" ^^ (State() ++ _)
 
   private lazy val arr: Parser[List[Any]] =
     "["~> repsep(value, ",") <~"]"

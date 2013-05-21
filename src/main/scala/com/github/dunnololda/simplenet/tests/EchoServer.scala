@@ -6,10 +6,8 @@ object EchoServer extends App {
   val server = NetServer(port = 9000)
 
   while(true) {
-    server.waitNewEvent match {
-      case NewMessage(client_id, message) =>
-        server.sendToAll(message)
-      case _ =>
+    server.waitNewEvent {
+      case NewMessage(client_id, message) => server.sendToAll(message)
     }
   }
 }
@@ -18,7 +16,7 @@ object ArithmeticServer extends App {
   val server = NetServer(port = 9000)
 
   while(true) {
-    server.waitNewEvent match {
+    server.waitNewEvent {
       case NewMessage(client_id, State(("a", a:Float), ("b", b:Float), ("op", op:String))) =>
         op match {
           case "+" => server.sendToClient(client_id, State("result" -> (a + b)))
@@ -27,7 +25,6 @@ object ArithmeticServer extends App {
           case "/" => server.sendToClient(client_id, State("result" -> (a / b)))  // no division by zero checking to keep example simple
           case _   => server.sendToClient(client_id, State("result" -> ("unknown op: " + op)))
         }
-      case _ =>
     }
   }
 }
@@ -45,10 +42,9 @@ object ArithmeticClient extends App {
       case _ => ("+", a+b)
     }
     client.send(State("a" -> a, "b" -> b, "op" -> op))
-    client.waitNewEvent match {
+    client.waitNewEvent {
       case NewServerMessage(State(("result", server_answer:Float))) =>
         println("answer: "+answer+"; server answer: "+server_answer)
-      case _ =>
     }
     Thread.sleep(5000)
   }

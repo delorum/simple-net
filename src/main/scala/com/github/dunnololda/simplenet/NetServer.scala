@@ -7,6 +7,7 @@ import scala.concurrent._
 import scala.concurrent.duration._
 import akka.pattern.ask
 import collection.mutable
+import ExecutionContext.Implicits.global
 
 // connection listener messages
 
@@ -24,6 +25,12 @@ case object Disconnect
 
 // client handler messages
 
+case object ClientIds
+
+case object IsConnected
+
+case object WaitConnection
+
 case object RetrieveEvent
 
 case object WaitForEvent
@@ -34,7 +41,7 @@ case class DisconnectClient(client_id: Long)
 
 sealed abstract class NetworkEvent
 
-case class NewConnection(client_id: Long, client: ActorRef) extends NetworkEvent
+case class NewConnection(client_id: Long, client: ActorRef)
 
 case class NewClient(client_id: Long) extends NetworkEvent
 
@@ -54,10 +61,10 @@ object NetServer {
   def apply(port: Int, ping_timeout: Long = 0) = new NetServer(port, ping_timeout)
 }
 
-class NetServer(port: Int, ping_timeout: Long = 0) {
+class NetServer(port: Int, val ping_timeout: Long = 0) {
   private val log = MySimpleLogger(this.getClass.getName)
 
-  def nextAvailablePort(port: Int): Int = {
+  private def nextAvailablePort(port: Int): Int = {
     def available(port: Int): Boolean = {
       // TODO: return Option[Int]: None if no available port found within some range
       var ss: ServerSocket = null
@@ -91,68 +98,64 @@ class NetServer(port: Int, ping_timeout: Long = 0) {
 
   def listenPort = listen_port
 
-  private val format = new java.text.SimpleDateFormat("yyyyMMddHHmmss")
-  private val moment = format.format(new java.util.Date())
-
-  private val connection_listener = ActorSystem("netserver-listener-" + moment)
+  private val connection_listener = ActorSystem("netserver-listener-" + (new java.text.SimpleDateFormat("yyyyMMddHHmmss")).format(new java.util.Date()))
   // is it necessary to have unique names for actor systems and/or actors? what are the issues if they are not?
-  private val handler = connection_listener.actorOf(Props(new ClientHandler))
+  private val client_handler = connection_listener.actorOf(Props(new ClientHandler))
 
-  connection_listener.actorOf(Props(new Actor {
-    override def preStart() {
-      log.info("starting actor " + self.path.toString)
-      //self ! Listen
-      import scala.concurrent.ExecutionContext.Implicits.global
-      context.system.scheduler.schedule(initialDelay = (0 seconds), interval = (100 milliseconds)) {
-        self ! Listen
-      }
+  private val server_socket = new ServerSocket(listen_port)
+  private var client_id: Long = 0
+  private def nextClientId: Long = {
+    client_id += 1
+    client_id
+  }
+  private def serverSocketAccept() {
+    future {
+      val socket = server_socket.accept()
+      val new_client_id = nextClientId
+      val new_client = connection_listener.actorOf(Props(new ConnectionHandler(new_client_id, socket, ping_timeout, client_handler)))
+      client_handler ! NewConnection(new_client_id, new_client)
+      serverSocketAccept()
     }
+  }
+  serverSocketAccept()
 
-    private val server_socket = new ServerSocket(listen_port)
-
-    private var client_id: Long = 0
-
-    private def nextClientId: Long = {
-      client_id += 1
-      client_id
-    }
-
-    def receive = {
-      case Listen =>
-        val socket = server_socket.accept()
-        val new_client_id = nextClientId
-        val new_client = context.actorOf(Props(new ConnectionHandler(new_client_id, socket, ping_timeout, handler)))
-        handler ! NewConnection(new_client_id, new_client)
-        self ! Listen
-    }
-  }))
-
-  def newEvent: NetworkEvent = {
-    Await.result(handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+  def newEvent(func: PartialFunction[NetworkEvent, Any]) = {
+    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+    if (func.isDefinedAt(event)) func(event)
   }
 
-  def waitNewEvent: NetworkEvent = {
-    Await.result(handler.ask(WaitForEvent)(timeout = (1000 days)), 1000 days).asInstanceOf[NetworkEvent]
+  def newEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
+    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+    if (func.isDefinedAt(event)) func(event) else default
+  }
+
+  def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
+    val event = Await.result(client_handler.ask(WaitForEvent)(timeout = (1000 days)), 1000 days).asInstanceOf[NetworkEvent]
+    if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
   def sendToClient(client_id: Long, message: State) {
-    handler ! SendToClient(client_id, message)
+    client_handler ! SendToClient(client_id, message)
   }
 
   def sendToAll(message: State) {
-    handler ! Send(message)
+    client_handler ! Send(message)
   }
 
   def disconnectClient(client_id:Long) {
-    handler ! DisconnectClient(client_id)
+    client_handler ! DisconnectClient(client_id)
   }
 
   def disconnectAll() {
-    handler ! Disconnect
+    client_handler ! Disconnect
   }
 
   def stop() {
     connection_listener.shutdown()
+  }
+
+  def clientIds:List[Long] = {
+    Await.result(client_handler.ask(ClientIds)(timeout = (1 minute)), 1 minute).asInstanceOf[List[Long]]
   }
 }
 
@@ -222,31 +225,30 @@ class ClientHandler extends Actor {
   private val clients = mutable.HashMap[Long, ActorRef]()
   private var event_waiter:Option[ActorRef] = None
 
+  private def processNetworkEvent(event:NetworkEvent) {
+    if (event_waiter.nonEmpty) {
+      event_waiter.get ! event
+      event_waiter = None
+    } else network_events += event
+  }
+
   def receive = {
     case event @ NewConnection(client_id, client_actor) =>
       clients += (client_id -> client_actor)
-      if (event_waiter.nonEmpty) {
-        event_waiter.get ! NewClient(client_id)
-        event_waiter = None
-      }
-      else network_events += NewClient(client_id)
+      processNetworkEvent(NewClient(client_id))
     case event @ ClientDisconnected(client_id) =>
       clients -= client_id
-      if (event_waiter.nonEmpty) {
-        event_waiter.get ! event
-        event_waiter = None
-      } else network_events += event
+      processNetworkEvent(event)
     case event: NetworkEvent =>
-      if (event_waiter.nonEmpty) {
-        event_waiter.get ! event
-        event_waiter = None
-      } else network_events += event
+      processNetworkEvent(event)
     case RetrieveEvent =>
       if (network_events.isEmpty) sender ! NoNewEvents
       else sender ! network_events.remove(0)
     case WaitForEvent =>
       if (network_events.nonEmpty) sender ! network_events.remove(0)
       else event_waiter = Some(sender)
+    case ClientIds =>
+      sender ! clients.keys.toList
     case SendToClient(client_id, message) =>
       clients.get(client_id).foreach(client => client ! Send(message))
     case Send(message) =>
