@@ -1,15 +1,15 @@
 simple-net
 ==========
 
-Scala wrapper on java sockets implementing very simple text/json network protocol. 
+Scala wrapper on java sockets implements a very simple text/json network protocol. 
 
-simple-net is built upon Akka Framework. 
+Simple-net is built upon Akka Framework. 
 
-On server-side: one actor is created to accept new connections and one additional actor will
-be created for every new connection to handle events from it. Also one actor is created to handle overall network
-events (new connections, new data from clients or client disconnections) and represent them to user.
+On the server-side: one actor is created to accept new connections and one additional actor to
+be created for every new connection to handle events from it. Also one actor is created to handle general network
+events (new connections, new data from clients, client disconnections) and presents them to user.
 
-On client-side: one actor is created to handle all network stuff.
+On the client-side: one actor is created to handle all network stuff.
 
 Usage
 =====
@@ -52,7 +52,7 @@ Add to dependencies:
 Code: Server
 ------------
 
-Lets start with this simple echo server:
+Let's start with this simple echo server:
 
     import com.github.dunnololda.simplenet._
     
@@ -73,8 +73,8 @@ https://github.com/dunnololda/simple-net/blob/master/src/main/scala/com/github/d
 to learn more about this class. 
 
 There is [JSONParser](https://github.com/dunnololda/simple-net/blob/master/src/main/scala/com/github/dunnololda/simplenet/JSONParser.scala) 
-class to parse strings in json format to `State`. When sending 
-messages, framework converts them to string json representation. When receiving, it convert them back
+class to parse strings in json format to `State`. While sending 
+messages, framework converts them to string json representation. When receiving, it converts them back
 from json string to State. 
 
 To test EchoServer from the code example above, you can start telnet from console and try to print 
@@ -91,10 +91,10 @@ something to it:
     {"a":1, "b":2, "c":"test"}
     {"b":2.0, "a":1.0, "c":"test"}
 
-The server sends back all messages it receive (as it states for "echo"). If message is not a valid json, then 
-server will put it to "raw" field of State object. 
+The server sends back every received message (as it states for "echo"). If the message is not a valid json, then 
+server puts it to the "raw" field of State object. 
 
-Server is multiclient. It listen accept and then handle any incoming connections. There is no limit on 
+Server is multiclient. It listens to 'accept' and then handles any incoming connections. There is no limit on 
 connections amount.
     
 `waitNewEvent` blocks until event is received. There are these server event types:
@@ -103,12 +103,12 @@ connections amount.
     case class NewMessage(client_id: Long, message: State) extends NetworkEvent
     case class ClientDisconnected(client_id: Long) extends NetworkEvent
     
-`newEvent` returns result immediately. If no messages received from clients, `NoNewEvents` object will be returned.
+`newEvent` returns result immediately. If no messages was received from clients, `NoNewEvents` object is returned.
 
 Use `sendToClient(client_id: Long, message: State)` and `sendToAll(message: State)` to send data to clients.
     
-Here is another example: arithmetic server. It receive two numbers, a and b and operation to perfrom with them and 
-return the result of the operation:
+Here is another example: arithmetic server. It gets two numbers, a and b and operation to perfrom with them and 
+returns the result of the operation:
 
     import com.github.dunnololda.simplenet._
     
@@ -177,7 +177,7 @@ CORRECT: ("a", a:Float), ("b", b:Float), ("op", op:String)
 WRONG: ("b", b:Float), ("a", a:Float), ("op", op:String)
 
 The `NetServer` constructor have additional parameter `ping_timeout` of type Int which is zero by default. You can set it to any non-zero positive value. 
-If parameter is set, server will send "ping" messages ({"ping":true}) to all connected clients every `ping_timeout` milliseconds. If sending will fail, such client 
+If parameter is set, server sends "ping" messages ({"ping":true}) to all connected clients every `ping_timeout` milliseconds. If sending is failed, such client 
 will be disconnected automatically.
 
     val server = NetServer(9000, 60000) // server will send ping messages every 60 seconds
@@ -185,7 +185,7 @@ will be disconnected automatically.
 Code: client
 ------------
 
-Lets create the client for our arithmetic server which will send random integers every 5 seconds and check the answers.
+Let's create the client for our arithmetic server which is sending random integers every 5 seconds and checking the answers.
 
     import com.github.dunnololda.simplenet._
 
@@ -211,14 +211,14 @@ Lets create the client for our arithmetic server which will send random integers
       }
     }
 
-As in server, there is `waitNewEvent` method which will block until event received and `newEvent` which returns 
+As in server, there is a `waitNewEvent` method which blocks until event is received and `newEvent` which returns 
 immediately. `send` method is used to send data to server. These are client event types:
 
     case object ServerConnected extends NetworkEvent
     case object ServerDisconnected extends NetworkEvent
     case class NewServerMessage(data:State) extends NetworkEvent
     
-If client failed to connect to server or server disconnected, client will try to reconnect in background. 
-No additional user concern is required.
+If client is failed to connect to a server or server is disconnected, client will try to reconnect in background. 
+No additional user concerns are required.
 
-Here is a brief overview. To learn more about simple-net please check the source code or email me.
+It was a brief overview. To learn more about the simple-net please check the source code or email me.
