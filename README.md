@@ -97,7 +97,8 @@ The server sends back every received message (as it states for "echo"). If the m
 server puts it to the "raw" field of State object. 
 
 Server is multiclient. It listens, accepts and then handles any incoming connections. There is no limit on 
-connections amount.
+connections amount. There is `clientIds:List[Long]` method to return ids of clients that are currently 
+connected to server.
     
 `waitNewEvent[T](func:PartialFunction[NetworkEvent, T]):T` blocks until event compatible with provided 
 PartialFunction is received. There are these server event types:
@@ -116,8 +117,6 @@ Use `sendToClient(client_id: Long, message: State)` and `sendToAll(message: Stat
 
 Important note: currently all `send*` methods are asynchronous and there is no explict verification 
 that the message was actually received by the other side. This is up to you!
-
-`clientIds:List[Long]` is used to return ids of clients that are currently connected to server.
     
 Here is another example: arithmetic server. It gets two numbers, a and b and operation to perform with them and 
 returns the result of the operation:
