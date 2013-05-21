@@ -45,7 +45,7 @@ Add to dependencies:
 
     libraryDependencies ++= Seq(
       // ...
-      "com.github.dunnololda" % "cli" % "1.1",
+      "com.github.dunnololda" % "simple-net" % "1.1",
       // ...
     )
     
