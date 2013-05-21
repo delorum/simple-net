@@ -5,7 +5,7 @@ Scala wrapper on java sockets implements a very simple text/json network protoco
 
 Simple-net is built upon Akka Framework. 
 
-On the server-side: one actor is created to accept new connections and one additional actor to
+On the server-side: one future is created to accept new connections and one additional actor to
 be created for every new connection to handle events from it. Also one actor is created to handle general network
 events (new connections, new data from clients, client disconnections) and presents them to user.
 
@@ -29,7 +29,7 @@ Add to your `<dependencies>` section:
       <dependency>
           <groupId>com.github.dunnololda</groupId>
           <artifactId>simple-net</artifactId>
-          <version>1.0</version>
+          <version>1.1</version>
       </dependency>
       
 Currently only Scala 2.10.1 is supported.
@@ -45,7 +45,7 @@ Add to dependencies:
 
     libraryDependencies ++= Seq(
       // ...
-      "com.github.dunnololda" % "cli" % "1.0",
+      "com.github.dunnololda" % "cli" % "1.1",
       // ...
     )
     
@@ -60,10 +60,9 @@ Let's start with this simple echo server:
       val server = NetServer(port = 9000)
       
       while(true) {
-        server.waitNewEvent match {
+        server.waitNewEvent {
           case NewMessage(client_id, message) =>
             server.sendToAll(message)
-          case _ =>
         }
       }
     }
@@ -71,6 +70,9 @@ Let's start with this simple echo server:
 `message` is of type `State`. See 
 https://github.com/dunnololda/simple-net/blob/master/src/main/scala/com/github/dunnololda/simplenet/State.scala 
 to learn more about this class. 
+
+If the port we are trying to bind on is busy, server tries to bind on any port higher then that until it found a
+free one.
 
 There is [JSONParser](https://github.com/dunnololda/simple-net/blob/master/src/main/scala/com/github/dunnololda/simplenet/JSONParser.scala) 
 class to parse strings in json format to `State`. While sending 
@@ -94,20 +96,30 @@ something to it:
 The server sends back every received message (as it states for "echo"). If the message is not a valid json, then 
 server puts it to the "raw" field of State object. 
 
-Server is multiclient. It listens to 'accept' and then handles any incoming connections. There is no limit on 
+Server is multiclient. It listens, accepts and then handles any incoming connections. There is no limit on 
 connections amount.
     
-`waitNewEvent` blocks until event is received. There are these server event types:
+`waitNewEvent[T](func:PartialFunction[NetworkEvent, T]):T` blocks until event compatible with provided 
+PartialFunction is received. There are these server event types:
     
     case class NewClient(client_id: Long) extends NetworkEvent
     case class NewMessage(client_id: Long, message: State) extends NetworkEvent
     case class ClientDisconnected(client_id: Long) extends NetworkEvent
     
-`newEvent` returns result immediately. If no messages was received from clients, `NoNewEvents` object is returned.
+`newEvent(func:PartialFunction[NetworkEvent, Any]):Any` returns result immediately. If no messages was received 
+from clients, `NoNewEvents` object is returned and passed to the PartialFunction provided.
+
+`fromNewEventOrDefault[T](default:T)(func:PartialFunction[NetwortkEvent, T]):T` is used to immediately calculate
+and return some result.
 
 Use `sendToClient(client_id: Long, message: State)` and `sendToAll(message: State)` to send data to clients.
+
+Important note: currently all `send*` methods are asynchronous and there is no explict verification 
+that the message was actually received by the other side. This is up to you!
+
+`clientIds:List[Long]` is used to return ids of clients that are currently connected to server.
     
-Here is another example: arithmetic server. It gets two numbers, a and b and operation to perfrom with them and 
+Here is another example: arithmetic server. It gets two numbers, a and b and operation to perform with them and 
 returns the result of the operation:
 
     import com.github.dunnololda.simplenet._
@@ -116,7 +128,7 @@ returns the result of the operation:
       val server = NetServer(port = 9000)
       
       while(true) {
-        server.waitNewEvent match {
+        server.waitNewEvent {
           case NewMessage(client_id, client_question) =>
             (for {
               a <- client_question.value[Float]("a")
@@ -134,7 +146,6 @@ returns the result of the operation:
                 }
               case None => server.sendToClient(client_id, State("result" -> "unknown data"))
             }
-          case _ =>
         }
       }
     }
@@ -156,7 +167,7 @@ Another way to parse State objects is like this:
       val server = NetServer(port = 9000)
       
       while(true) {
-        server.waitNewEvent match {
+        server.waitNewEvent {
           case NewMessage(client_id, State(("a", a:Float), ("b", b:Float), ("op", op:String))) =>
             op match {
               case "+" => server.sendToClient(client_id, State("result" -> (a + b)))
@@ -165,7 +176,6 @@ Another way to parse State objects is like this:
               case "/" => server.sendToClient(client_id, State("result" -> (a / b)))  // no division by zero checking to keep example simple
               case _   => server.sendToClient(client_id, State("result" -> ("unknown op: " + op)))
             }
-          case _ =>
         }
       }
     }
@@ -176,22 +186,24 @@ CORRECT: ("a", a:Float), ("b", b:Float), ("op", op:String)
 
 WRONG: ("b", b:Float), ("a", a:Float), ("op", op:String)
 
-The `NetServer` constructor have additional parameter `ping_timeout` of type Int which is zero by default. You can set it to any non-zero positive value. 
-If parameter is set, server sends "ping" messages ({"ping":true}) to all connected clients every `ping_timeout` milliseconds. If sending is failed, such client 
-will be disconnected automatically.
+The `NetServer` constructor have additional parameter `ping_timeout` of type Int which is zero by default. You can 
+set it to any non-zero positive value. If parameter is set, server sends "ping" messages ({"ping":true}) to all 
+connected clients every `ping_timeout` milliseconds. If sending is failed, such client will be disconnected 
+automatically.
 
     val server = NetServer(9000, 60000) // server will send ping messages every 60 seconds
 
 Code: client
 ------------
 
-Let's create the client for our arithmetic server which is sending random integers every 5 seconds and checking the answers.
+Let's create the client for our arithmetic server which is sending random integers every 5 seconds and checking 
+the answers.
 
     import com.github.dunnololda.simplenet._
 
     object ArithmeticClient extends App {
-      val client = NetClient(host = "localhost", port = 9000, ping_timeout = 0)
-
+      val client = NetClient(host = "localhost", port = 9000)  // ping_timeout parameter is also supported
+      client.waitConnection()
       while(true) {
         val (a, b) = ((math.random*100).toFloat, (math.random*100).toFloat)
         val (op, answer) = (math.random*4).toInt match {
@@ -202,23 +214,25 @@ Let's create the client for our arithmetic server which is sending random intege
           case _ => ("+", a+b)
         }
         client.send(State("a" -> a, "b" -> b, "op" -> op))
-        client.waitNewEvent match {
+        client.waitNewEvent {
           case NewServerMessage(State(("result", server_answer:Float))) =>
             println("answer: "+answer+"; server answer: "+server_answer)
-          case _ =>
+          case _ =>  // here we match any other event like server disconnecting or reconnecting
         }
         Thread.sleep(5000)
       }
     }
 
-As in server, there is a `waitNewEvent` method which blocks until event is received and `newEvent` which returns 
-immediately. `send` method is used to send data to server. These are client event types:
+As in server, there is a `waitNewEvent` method which blocks until event is received and `newEvent` and 
+`fromNewEventOrDefault` which return immediately. `send` method is used to send data to server.
+These are client event types:
 
     case object ServerConnected extends NetworkEvent
     case object ServerDisconnected extends NetworkEvent
     case class NewServerMessage(data:State) extends NetworkEvent
     
 If client is failed to connect to a server or server is disconnected, client will try to reconnect in background. 
-No additional user concerns are required.
+No additional user concerns are required. There is `isConnected:Boolean` method to check if client is currently 
+connected.
 
 It was a brief overview. To learn more about the simple-net please check the source code or email me.
