@@ -127,7 +127,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
     if (func.isDefinedAt(event)) func(event)
   }
 
-  def newEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
+  def fromNewEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
     val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
