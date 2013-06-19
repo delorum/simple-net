@@ -1,6 +1,7 @@
 package com.github.dunnololda.simplenet
 
 import collection.{GenTraversableOnce, immutable, mutable}
+import collection.mutable.ArrayBuffer
 
 /**
  * Represents JSON Object
@@ -141,6 +142,13 @@ class State(args:Any*) extends Map[String, Any] {
   override def ++[B1 >: Any](xs: GenTraversableOnce[(String, B1)]): State = State((iterator.toList ::: xs.toList):_*)
 }
 
+class StateBuilder {
+  private val inner_buffer = ArrayBuffer[(String, Any)]()
+  def +=(elem:(String, Any)) {inner_buffer += elem}
+  def ++=(elems:Seq[(String, Any)]) {inner_buffer ++= elems}
+  def toState = State(inner_buffer:_*)
+}
+
 object State {
   def apply(args:Any*) = new State(args:_*)
   def unapplySeq(data:Any) = {
@@ -156,4 +164,6 @@ object State {
     case Some(s:State) => s
     case None => default_state
   }
+
+  def newBuilder = new StateBuilder
 }

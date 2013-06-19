@@ -64,37 +64,7 @@ object NetServer {
 class NetServer(port: Int, val ping_timeout: Long = 0) {
   private val log = MySimpleLogger(this.getClass.getName)
 
-  private def nextAvailablePort(port: Int): Int = {
-    def available(port: Int): Boolean = {
-      // TODO: return Option[Int]: None if no available port found within some range
-      var ss: ServerSocket = null
-      var ds: DatagramSocket = null
-      try {
-        ss = new ServerSocket(port)
-        ss.setReuseAddress(true)
-        ds = new DatagramSocket(port)
-        ds.setReuseAddress(true)
-        return true
-      } catch {
-        case e: Exception => return false
-      } finally {
-        if (ds != null) ds.close()
-        if (ss != null) ss.close()
-      }
-      false
-    }
-
-    log.info("trying port " + port + "...")
-    if (available(port)) {
-      log.info("the port is available!")
-      port
-    } else {
-      log.info("the port is busy")
-      nextAvailablePort(port + 1)
-    }
-  }
-
-  private val listen_port = nextAvailablePort(port)
+  private val listen_port = nextAvailablePort(log, port)
 
   def listenPort = listen_port
 
@@ -103,11 +73,7 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   private val client_handler = connection_listener.actorOf(Props(new ClientHandler))
 
   private val server_socket = new ServerSocket(listen_port)
-  private var client_id: Long = 0
-  private def nextClientId: Long = {
-    client_id += 1
-    client_id
-  }
+
   private def serverSocketAccept() {
     future {
       val socket = server_socket.accept()

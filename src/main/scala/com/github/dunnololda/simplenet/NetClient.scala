@@ -142,7 +142,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   }
 
   def waitConnection() {
-    Await.result(connection_handler.ask(WaitConnection)(timeout = (1000 days)), 1000 days).asInstanceOf[Boolean]
+    Await.result(connection_handler.ask(WaitConnection)(timeout = (1000 days)), 1000 days)
   }
 
   def send(message: State) {
