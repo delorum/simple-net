@@ -125,6 +125,7 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
     case NewUdpPacket(packet) =>
       val location = UdpClientLocation(packet.getAddress, packet.getPort)
       val message = new String(packet.getData).takeWhile(c => c != '#')
+      log.info(s"received message: $message from ${location.address}:${location.port}")
       message match {
         case "SN PING" =>
           clients_by_location.get(location) match {

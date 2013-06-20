@@ -113,6 +113,7 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
   def receive = {
     case NewUdpPacket(packet) =>
       val message = new String(packet.getData).takeWhile(c => c != '#')
+      log.info(s"received message: $message")
       message match {
         case "SN PING" =>
           last_interaction_moment = System.currentTimeMillis()
