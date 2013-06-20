@@ -107,6 +107,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
           }
         }
       case Disconnect =>
+        sender ! true
         context.stop(self)
       case RetrieveEvent =>
         if (network_events.isEmpty) sender ! NoNewEvents
@@ -150,7 +151,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   }
 
   def disconnect() {
-    connection_handler ! Disconnect
+    Await.result(connection_handler.ask(Disconnect)(timeout = (1000 days)), 1000 days)
   }
 
   def stop() {

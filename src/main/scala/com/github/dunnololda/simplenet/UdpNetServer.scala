@@ -10,24 +10,12 @@ import ExecutionContext.Implicits.global
 import java.lang.String
 import collection.mutable.ArrayBuffer
 
-sealed class UdpEvent
-case class NewUdpConnection(client_id:Long) extends UdpEvent
-case class NewUdpPacket(packet:DatagramPacket) extends UdpEvent
-case class NewUdpMessage(client_id:Long, data:State) extends UdpEvent
-case class NewUdpServerMessage(data:State) extends UdpEvent
-case class UdpClientDisconnected(client_id:Long) extends UdpEvent
-case object UdpServerConnected extends UdpEvent
-case object UdpServerDisconnected extends UdpEvent
-case object NoNewUdpEvents extends UdpEvent
-
-case class UdpClientLocation(address:InetAddress, port:Int)
-case class UdpClient(id:Long, location:UdpClientLocation, var last_interaction_moment:Long)
-
 object UdpNetServer {
-  def apply(port: Int, buffer_size:Int = 1024, ping_timeout: Long = 0, check_timeout:Long = 0) = new UdpNetServer(port, buffer_size, ping_timeout, check_timeout)
+  def apply(port: Int, buffer_size:Int = 1024, ping_timeout: Long = 1000, check_timeout:Long = 10000, delimiter:Char = '#') =
+    new UdpNetServer(port, buffer_size, ping_timeout, check_timeout, delimiter)
 }
 
-class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long = 0, val check_timeout: Long = 0) {
+class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long = 1000, val check_timeout: Long = 10000, val delimiter:Char = '#') {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val listen_port = nextAvailablePort(log, port)
@@ -35,15 +23,31 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
 
   private val system = ActorSystem("udpserver-listener-" + (new java.text.SimpleDateFormat("yyyyMMddHHmmss")).format(new java.util.Date()))
   private val server_socket = new DatagramSocket(listen_port)
-  private val udp_server_listener = system.actorOf(Props(new UdpServerListener(server_socket, ping_timeout, check_timeout)))
+  private val udp_server_listener = system.actorOf(Props(new UdpServerListener(server_socket, ping_timeout, check_timeout, delimiter)))
+  private var current_buffer_size = buffer_size
+  private var receive_data = new Array[Byte](buffer_size)
+  private var receive_packet = new DatagramPacket(receive_data, receive_data.length)
 
   private def receive() {
     future {
-      val receive_data = new Array[Byte](buffer_size)
-      val receive_packet = new DatagramPacket(receive_data, receive_data.length)
-      server_socket.receive(receive_packet)
-      udp_server_listener ! NewUdpPacket(receive_packet)
-      receive()
+      try {
+        server_socket.receive(receive_packet)
+        val location = UdpClientLocation(receive_packet.getAddress, receive_packet.getPort)
+        receive_packet.getOffset
+        if (!receive_packet.getData.contains(delimiter)) {
+          log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
+          current_buffer_size += 1000
+          receive_data = new Array[Byte](current_buffer_size)
+          receive_packet = new DatagramPacket(receive_data, receive_data.length)
+        } else {
+          val message = new String(receive_packet.getData).takeWhile(c => c != delimiter)
+          udp_server_listener ! NewUdpClientPacket(location, message)
+        }
+        receive()
+      } catch {
+        case e:Exception =>
+          log.error(s"error receiving data from server: ${e.getLocalizedMessage}")  // likely we are just closed
+      }
     }
   }
   receive()
@@ -61,7 +65,7 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
   }
 
   def disconnectAll() {
-    udp_server_listener ! Disconnect
+    Await.result(udp_server_listener.ask(Disconnect)(timeout = (1000 days)), 1000 days)
   }
 
   def newEvent(func: PartialFunction[UdpEvent, Any]) = {
@@ -82,9 +86,15 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
   def clientIds:List[Long] = {
     Await.result(udp_server_listener.ask(ClientIds)(timeout = (1 minute)), 1 minute).asInstanceOf[List[Long]]
   }
+
+  def stop() {
+    disconnectAll()
+    system.shutdown()
+    server_socket.close()
+  }
 }
 
-class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_timeout:Long) extends Actor {
+class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_timeout:Long, delimiter:Char) extends Actor {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val clients_by_id = mutable.HashMap[Long, UdpClient]()
@@ -116,16 +126,14 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
   }
 
   private def _send(message:String, location:UdpClientLocation) {
-    val send_data = (message + "#").getBytes
+    val send_data = (new StringBuffer(message).append(delimiter)).toString.getBytes
     val send_packet = new DatagramPacket(send_data, send_data.length, location.address, location.port)
     server_socket.send(send_packet)
   }
 
   def receive = {
-    case NewUdpPacket(packet) =>
-      val location = UdpClientLocation(packet.getAddress, packet.getPort)
-      val message = new String(packet.getData).takeWhile(c => c != '#')
-      log.info(s"received message: $message from ${location.address}:${location.port}")
+    case NewUdpClientPacket(location, message) =>
+      //log.info(s"received message: $message from ${location.address}:${location.port}")
       message match {
         case "SN PING" =>
           clients_by_location.get(location) match {
@@ -155,7 +163,7 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
           val received_data = State.fromJsonStringOrDefault(message, State(("raw" -> message)))
           clients_by_location.get(location) match {
             case Some(client) =>
-              processUdpEvent(NewUdpMessage(client.id, received_data))
+              processUdpEvent(NewUdpClientData(client.id, received_data))
               client.last_interaction_moment = System.currentTimeMillis()
             case None =>
           }
@@ -177,6 +185,7 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
     case Check =>
       clients_by_id.foreach {
         case (_, client) => if(System.currentTimeMillis() - client.last_interaction_moment > check_timeout) {
+          _send("SN BYE", client.location)
           processUdpEvent(UdpClientDisconnected(client.id))
         }
       }
@@ -192,12 +201,17 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
           _send("SN BYE", client.location)
           clients_by_id -= client_id
           clients_by_location -= client.location
+          processUdpEvent(UdpClientDisconnected(client.id))
         case None =>
       }
     case Disconnect =>
       clients_by_id.values.foreach(client => {
         _send("SN BYE", client.location)
+        processUdpEvent(UdpClientDisconnected(client.id))
       })
+      clients_by_id.clear()
+      clients_by_location.clear()
+      sender ! true
     case RetrieveEvent =>
       if (udp_events.isEmpty) sender ! NoNewUdpEvents
       else sender ! udp_events.remove(0)

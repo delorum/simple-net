@@ -9,54 +9,6 @@ import akka.pattern.ask
 import collection.mutable
 import ExecutionContext.Implicits.global
 
-// connection listener messages
-
-case object Listen
-
-// connection handler messages
-
-case object Check
-
-case object Ping
-
-case class Send(message: State)
-
-case object Disconnect
-
-// client handler messages
-
-case object ClientIds
-
-case object IsConnected
-
-case object WaitConnection
-
-case object RetrieveEvent
-
-case object WaitForEvent
-
-case class SendToClient(client_id: Long, message: State)
-
-case class DisconnectClient(client_id: Long)
-
-sealed abstract class NetworkEvent
-
-case class NewConnection(client_id: Long, client: ActorRef)
-
-case class NewClient(client_id: Long) extends NetworkEvent
-
-case class NewMessage(client_id: Long, message: State) extends NetworkEvent
-
-case class ClientDisconnected(client_id: Long) extends NetworkEvent
-
-case object ServerConnected extends NetworkEvent
-
-case object ServerDisconnected extends NetworkEvent
-
-case class NewServerMessage(data:State) extends NetworkEvent
-
-case object NoNewEvents extends NetworkEvent
-
 object NetServer {
   def apply(port: Int, ping_timeout: Long = 0) = new NetServer(port, ping_timeout)
 }
@@ -76,10 +28,15 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
 
   private def serverSocketAccept() {
     future {
-      val socket = server_socket.accept()
-      val new_client_id = nextClientId
-      val new_client = connection_listener.actorOf(Props(new ConnectionHandler(new_client_id, socket, ping_timeout, client_handler)))
-      client_handler ! NewConnection(new_client_id, new_client)
+      try {
+        val socket = server_socket.accept()
+        val new_client_id = nextClientId
+        val new_client = connection_listener.actorOf(Props(new ConnectionHandler(new_client_id, socket, ping_timeout, client_handler)))
+        client_handler ! NewConnection(new_client_id, new_client)
+      } catch {
+        case e:Exception =>
+          log.error(s"error receiving data from server: ${e.getLocalizedMessage}")  // likely we are just closed
+      }
       serverSocketAccept()
     }
   }
@@ -113,10 +70,12 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   }
 
   def disconnectAll() {
-    client_handler ! Disconnect
+    Await.result(client_handler.ask(Disconnect)(timeout = (1000 days)), 1000 days)
   }
 
   def stop() {
+    disconnectAll()
+    server_socket.close()
     connection_listener.shutdown()
   }
 
@@ -182,6 +141,7 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout: Long = 0, handle
         }
       }
     case Disconnect =>
+      sender ! true
       context.stop(self)
   }
 }
@@ -222,6 +182,7 @@ class ClientHandler extends Actor {
     case DisconnectClient(client_id) =>
       clients.get(client_id).foreach(client => client ! Disconnect)
     case Disconnect =>
-      clients.values.foreach(client => client ! Disconnect)
+      clients.values.foreach(client => Await.result(client.ask(Disconnect)(timeout = (1000 days)), 1000 days))
+      sender ! true
   }
 }

@@ -5,28 +5,43 @@ import java.net.{InetAddress, DatagramPacket, DatagramSocket}
 import scala.concurrent._
 import scala.concurrent.duration._
 import akka.pattern.ask
-import collection.mutable
 import ExecutionContext.Implicits.global
 import java.lang.String
 import collection.mutable.ArrayBuffer
 
 object UdpNetClient {
-  def apply(address:String, port: Int, buffer_size:Int = 1024, ping_timeout: Long = 0, check_timeout:Long = 0) = new UdpNetClient(address, port, buffer_size, ping_timeout, check_timeout)
+  def apply(address:String, port: Int, buffer_size:Int = 1024, ping_timeout: Long = 1000, check_timeout:Long = 10000, delimiter:Char = '#') =
+    new UdpNetClient(address, port, buffer_size, ping_timeout, check_timeout, delimiter)
 }
 
-class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024, val ping_timeout:Long = 0, val check_timeout:Long = 0) {
+class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024, val ping_timeout:Long = 0, val check_timeout:Long = 0, val delimiter:Char = '#') {
+  private val log = MySimpleLogger(this.getClass.getName)
   private val client_socket = new DatagramSocket()
 
   private val system = ActorSystem("udpclient-listener-" + (new java.text.SimpleDateFormat("yyyyMMddHHmmss")).format(new java.util.Date()))
-  private val udp_client_listener = system.actorOf(Props(new UdpClientListener(client_socket, address, port, ping_timeout, check_timeout)))
+  private val udp_client_listener = system.actorOf(Props(new UdpClientListener(client_socket, address, port, ping_timeout, check_timeout, delimiter)))
+  private var current_buffer_size = buffer_size
+  private var receive_data = new Array[Byte](buffer_size)
+  private var receive_packet = new DatagramPacket(receive_data, receive_data.length)
 
   private def receive() {
     future {
-      val receive_data = new Array[Byte](buffer_size)
-      val receive_packet = new DatagramPacket(receive_data, receive_data.length)
-      client_socket.receive(receive_packet)
-      udp_client_listener ! NewUdpPacket(receive_packet)
-      receive()
+      try {
+        client_socket.receive(receive_packet)
+        if (!receive_packet.getData.contains(delimiter)) {
+          log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
+          current_buffer_size += 1000
+          receive_data = new Array[Byte](current_buffer_size)
+          receive_packet = new DatagramPacket(receive_data, receive_data.length)
+        } else {
+          val message = new String(receive_packet.getData.takeWhile(c => c != delimiter))
+          udp_client_listener ! NewUdpServerPacket(message)
+        }
+        receive()
+      } catch {
+        case e:Exception =>
+          log.error(s"error receiving data from server: ${e.getLocalizedMessage}")  // likely we are just closed
+      }
     }
   }
   receive()
@@ -59,11 +74,17 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 
   def disconnect() {
-    udp_client_listener ! Disconnect
+    Await.result(udp_client_listener.ask(Disconnect)(timeout = (1000 days)), 1000 days)
+  }
+
+  def stop() {
+    disconnect()
+    system.shutdown()
+    client_socket.close()
   }
 }
 
-class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, ping_timeout:Long, check_timeout:Long) extends Actor {
+class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, ping_timeout:Long, check_timeout:Long, delimiter:Char) extends Actor {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val ip_address = InetAddress.getByName(address)
@@ -105,15 +126,14 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
   }
 
   private def _send(message:String) {
-    val send_data = (message + "#").getBytes
+    val send_data = (new StringBuffer(message).append(delimiter)).toString.getBytes
     val send_packet = new DatagramPacket(send_data, send_data.length, ip_address, port)
     client_socket.send(send_packet)
   }
 
   def receive = {
-    case NewUdpPacket(packet) =>
-      val message = new String(packet.getData).takeWhile(c => c != '#')
-      log.info(s"received message: $message")
+    case NewUdpServerPacket(message) =>
+      //log.info(s"received message: $message")
       message match {
         case "SN PING" =>
           last_interaction_moment = System.currentTimeMillis()
@@ -127,7 +147,7 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
           processUdpEvent(UdpServerDisconnected)
         case _ =>
           val received_data = State.fromJsonStringOrDefault(message, State(("raw" -> message)))
-          processUdpEvent(NewUdpServerMessage(received_data))
+          processUdpEvent(NewUdpServerData(received_data))
           last_interaction_moment = System.currentTimeMillis()
           if (!is_connected) {
             processUdpEvent(UdpServerConnected)
@@ -148,6 +168,7 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
       _send("SN BYE")
       is_connected = false
       processUdpEvent(UdpServerDisconnected)
+      sender ! true
     case RetrieveEvent =>
       if (udp_events.isEmpty) sender ! NoNewUdpEvents
       else sender ! udp_events.remove(0)
