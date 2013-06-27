@@ -20,7 +20,7 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
 
   def listenPort = listen_port
 
-  private val connection_listener = ActorSystem("netserver-listener-" + (new java.text.SimpleDateFormat("yyyyMMddHHmmss")).format(new java.util.Date()))
+  private val connection_listener = ActorSystem("netserver-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
   // is it necessary to have unique names for actor systems and/or actors? what are the issues if they are not?
   private val client_handler = connection_listener.actorOf(Props(new ClientHandler))
 
@@ -43,17 +43,17 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   serverSocketAccept()
 
   def newEvent(func: PartialFunction[NetworkEvent, Any]) = {
-    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event)
   }
 
   def fromNewEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
   def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(client_handler.ask(WaitForEvent)(timeout = (1000 days)), 1000 days).asInstanceOf[NetworkEvent]
+    val event = Await.result(client_handler.ask(WaitForEvent)(timeout = 1000.days), 1000 days).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
@@ -70,7 +70,7 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   }
 
   def disconnectAll() {
-    Await.result(client_handler.ask(Disconnect)(timeout = (1000 days)), 1000 days)
+    Await.result(client_handler.ask(Disconnect)(timeout = 1000.days), 1000 days)
   }
 
   def stop() {
@@ -80,7 +80,7 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   }
 
   def clientIds:List[Long] = {
-    Await.result(client_handler.ask(ClientIds)(timeout = (1 minute)), 1 minute).asInstanceOf[List[Long]]
+    Await.result(client_handler.ask(ClientIds)(timeout = 1.minute), 1 minute).asInstanceOf[List[Long]]
   }
 }
 
@@ -93,11 +93,11 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout: Long = 0, handle
   override def preStart() {
     log.info("starting actor " + self.path.toString)
     import scala.concurrent.ExecutionContext.Implicits.global
-    context.system.scheduler.schedule(initialDelay = (0 seconds), interval = (100 milliseconds)) {
+    context.system.scheduler.schedule(initialDelay = 0.seconds, interval = 100.milliseconds) {
       self ! Check
     }
     if (ping_timeout > 0) {
-      context.system.scheduler.schedule(initialDelay = (ping_timeout milliseconds), interval = (ping_timeout milliseconds)) {
+      context.system.scheduler.schedule(initialDelay = ping_timeout.milliseconds, interval = ping_timeout.milliseconds) {
         self ! Ping
       }
     }
@@ -115,7 +115,7 @@ class ConnectionHandler(id: Long, socket: Socket, ping_timeout: Long = 0, handle
       if (in.ready) {
         try {
           val message = in.readLine
-          val received_data = State.fromJsonStringOrDefault(message, State(("raw" -> message)))
+          val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
           if (!received_data.contains("ping")) {
             handler ! NewMessage(id, received_data)
           }
@@ -182,7 +182,7 @@ class ClientHandler extends Actor {
     case DisconnectClient(client_id) =>
       clients.get(client_id).foreach(client => client ! Disconnect)
     case Disconnect =>
-      clients.values.foreach(client => Await.result(client.ask(Disconnect)(timeout = (1000 days)), 1000 days))
+      clients.values.foreach(client => Await.result(client.ask(Disconnect)(timeout = 1000.days), 1000 days))
       sender ! true
   }
 }

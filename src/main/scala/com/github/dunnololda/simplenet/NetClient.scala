@@ -14,7 +14,7 @@ object NetClient {
 class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   private val log = MySimpleLogger(this.getClass.getName)
 
-  private val connection_listener = ActorSystem("netclient-listener-" + (new java.text.SimpleDateFormat("yyyyMMddHHmmss")).format(new java.util.Date()))
+  private val connection_listener = ActorSystem("netclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
   private val connection_handler = connection_listener.actorOf(Props(new Actor {
     private var is_connected      = false
     private var socket:Socket     = _
@@ -54,11 +54,11 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
       log.info("starting actor " + self.path.toString)
       connect()
       import scala.concurrent.ExecutionContext.Implicits.global
-      context.system.scheduler.schedule(initialDelay = (0 seconds), interval = (100 milliseconds)) {
+      context.system.scheduler.schedule(initialDelay = 0.seconds, interval = 100.milliseconds) {
         self ! Check
       }
       if (ping_timeout > 0) {
-        context.system.scheduler.schedule(initialDelay = (ping_timeout milliseconds), interval = (ping_timeout milliseconds)) {
+        context.system.scheduler.schedule(initialDelay = ping_timeout.milliseconds, interval = ping_timeout.milliseconds) {
           self ! Ping
         }
       }
@@ -78,7 +78,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
           if (in.ready) {
             try {
               val message = in.readLine
-              val received_data = State.fromJsonStringOrDefault(message, State(("raw" -> message)))
+              val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
               if (!received_data.contains("ping")) {
                 processNetworkEvent(NewServerMessage(received_data))
               }
@@ -124,26 +124,26 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   }))
 
   def newEvent(func: PartialFunction[NetworkEvent, Any]) = {
-    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event)
   }
 
   def fromNewEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
   def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(connection_handler.ask(WaitForEvent)(timeout = (1000 days)), 1000 days).asInstanceOf[NetworkEvent]
+    val event = Await.result(connection_handler.ask(WaitForEvent)(timeout = 1000.days), 1000 days).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
   def isConnected:Boolean = {
-    Await.result(connection_handler.ask(IsConnected)(timeout = (1 minute)), 1 minute).asInstanceOf[Boolean]
+    Await.result(connection_handler.ask(IsConnected)(timeout = 1.minute), 1 minute).asInstanceOf[Boolean]
   }
 
   def waitConnection() {
-    Await.result(connection_handler.ask(WaitConnection)(timeout = (1000 days)), 1000 days)
+    Await.result(connection_handler.ask(WaitConnection)(timeout = 1000.days), 1000 days)
   }
 
   def send(message: State) {
@@ -151,7 +151,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   }
 
   def disconnect() {
-    Await.result(connection_handler.ask(Disconnect)(timeout = (1000 days)), 1000 days)
+    Await.result(connection_handler.ask(Disconnect)(timeout = 1000.days), 1000 days)
   }
 
   def stop() {

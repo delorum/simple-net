@@ -1,11 +1,11 @@
 package com.github.dunnololda.simplenet
 
 import akka.actor.{ActorRef, Actor, Props, ActorSystem}
-import java.net.{InetAddress, DatagramPacket, DatagramSocket}
+import java.net.{DatagramPacket, DatagramSocket}
 import scala.concurrent._
 import scala.concurrent.duration._
 import akka.pattern.ask
-import collection.mutable
+import scala.collection.mutable
 import ExecutionContext.Implicits.global
 import java.lang.String
 import collection.mutable.ArrayBuffer
@@ -21,7 +21,7 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
   private val listen_port = nextAvailablePort(log, port)
   def listenPort = listen_port
 
-  private val system = ActorSystem("udpserver-listener-" + (new java.text.SimpleDateFormat("yyyyMMddHHmmss")).format(new java.util.Date()))
+  private val system = ActorSystem("udpserver-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
   private val server_socket = new DatagramSocket(listen_port)
   private val udp_server_listener = system.actorOf(Props(new UdpServerListener(server_socket, ping_timeout, check_timeout, delimiter)))
   private var current_buffer_size = buffer_size
@@ -33,7 +33,6 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
       try {
         server_socket.receive(receive_packet)
         val location = UdpClientLocation(receive_packet.getAddress, receive_packet.getPort)
-        receive_packet.getOffset
         if (!receive_packet.getData.contains(delimiter)) {
           log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
           current_buffer_size += 1000
@@ -65,26 +64,26 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
   }
 
   def disconnectAll() {
-    Await.result(udp_server_listener.ask(Disconnect)(timeout = (1000 days)), 1000 days)
+    Await.result(udp_server_listener.ask(Disconnect)(timeout = 1000.days), 1000 days)
   }
 
   def newEvent(func: PartialFunction[UdpEvent, Any]) = {
-    val event = Await.result(udp_server_listener.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_server_listener.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event)
   }
 
   def newEventOrDefault[T](default: T)(func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_server_listener.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_server_listener.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
   def waitNewEvent[T](func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_server_listener.ask(WaitForEvent)(timeout = (1000 days)), 1000 days).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_server_listener.ask(WaitForEvent)(timeout = 1000.days), 1000 days).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
   def clientIds:List[Long] = {
-    Await.result(udp_server_listener.ask(ClientIds)(timeout = (1 minute)), 1 minute).asInstanceOf[List[Long]]
+    Await.result(udp_server_listener.ask(ClientIds)(timeout = 1.minute), 1 minute).asInstanceOf[List[Long]]
   }
 
   def stop() {
@@ -93,6 +92,9 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
     server_socket.close()
   }
 }
+
+/*case object DumpCodeTable
+case object UpdateMyCodeTable*/
 
 class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_timeout:Long, delimiter:Char) extends Actor {
   private val log = MySimpleLogger(this.getClass.getName)
@@ -114,20 +116,82 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
     log.info("starting actor " + self.path.toString)
     import scala.concurrent.ExecutionContext.Implicits.global
     if (ping_timeout > 0) {
-      context.system.scheduler.schedule(initialDelay = (ping_timeout milliseconds), interval = (ping_timeout milliseconds)) {
+      context.system.scheduler.schedule(initialDelay = ping_timeout.milliseconds, interval = ping_timeout.milliseconds) {
         self ! Ping
       }
     }
     if (check_timeout > 0) {
-      context.system.scheduler.schedule(initialDelay = (check_timeout milliseconds), interval = (check_timeout milliseconds)) {
+      context.system.scheduler.schedule(initialDelay = check_timeout.milliseconds, interval = check_timeout.milliseconds) {
         self ! Check
       }
     }
+
+    /*context.system.scheduler.schedule(initialDelay = 1.minute, interval = 1.minute) {
+      self ! DumpCodeTable
+    }*/
   }
 
+  /*private val char_freqs = mutable.HashMap[Char, Int]()
+  private def recountFreqs(str:String) {
+    str.foreach(c => {
+      char_freqs(c) = char_freqs.getOrElse(c, 0) + 1
+    })
+  }
+  private def dumpCodeTableToFile(filename:String) {
+    val code_tree = Huffman.createCodeTree(char_freqs.toMap)
+    val code_table = Huffman.convert(code_tree)
+    val fos = new java.io.FileOutputStream(filename)
+    for {
+      (char, bits) <- code_table
+    } {
+      fos.write(s"$char : ${bits.mkString(" ")}\n".getBytes)
+    }
+    fos.close()
+  }
+
+  private def loadCodeTableFromFile(filename:String):Huffman.CodeTable = {
+    (for {
+      line <- io.Source.fromFile(filename).getLines()
+      char_and_bits = line.split(":")
+      char = char_and_bits(0).trim().head
+      bits = char_and_bits(1).trim().split(" ").map(_.toInt).toList
+    } yield (char, bits)).toList
+  }
+
+  def bits2byte(bits:Seq[Int]):Byte = {
+    bits.zip(List(128, 64, 32, 16, 8, 4, 2, 1)).foldLeft(0) {
+      case (res, (bit, x)) => res + bit*x
+    }.toByte
+  }
+
+  private def encodeStr(str:String, code_table:Map[Char, List[Int]]):Array[Byte] = {
+    val bits = str.flatMap(c => code_table(c))
+    val len = math.pow(8, (math.log(bits.length)/math.log(8)).toInt+1).toInt
+    val ee = bits.padTo(len, 0)
+    ee.grouped(8).map(l => bits2byte(l)).toArray
+  }
+
+  private def bit(byte:Byte, bit_pos:Int):Int = if((byte & bit_pos) > 0) 1 else 0
+
+  private def bytes2BitList(d:Seq[Byte]) = {
+    d.map(x => {
+      List(
+        bit(x, 128),
+        bit(x, 64),
+        bit(x, 32),
+        bit(x, 16),
+        bit(x, 8),
+        bit(x, 4),
+        bit(x, 2),
+        bit(x, 1)
+      )
+    }).flatten
+  }*/
+
   private def _send(message:String, location:UdpClientLocation) {
-    val send_data = (new StringBuffer(message).append(delimiter)).toString.getBytes
-    val send_packet = new DatagramPacket(send_data, send_data.length, location.address, location.port)
+    val send_data = new StringBuffer(message).append(delimiter).toString
+    //recountFreqs(send_data)
+    val send_packet = new DatagramPacket(send_data.getBytes, send_data.length, location.address, location.port)
     server_socket.send(send_packet)
   }
 
@@ -160,7 +224,7 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
             case None =>
           }
         case _ =>
-          val received_data = State.fromJsonStringOrDefault(message, State(("raw" -> message)))
+          val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
           clients_by_location.get(location) match {
             case Some(client) =>
               processUdpEvent(NewUdpClientData(client.id, received_data))
@@ -211,7 +275,10 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
       })
       clients_by_id.clear()
       clients_by_location.clear()
+      //dumpCodeTableToFile("codetable-server.sn")
       sender ! true
+    /*case DumpCodeTable =>
+      dumpCodeTableToFile("codetable-server.sn")*/
     case RetrieveEvent =>
       if (udp_events.isEmpty) sender ! NoNewUdpEvents
       else sender ! udp_events.remove(0)

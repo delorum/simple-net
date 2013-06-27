@@ -144,9 +144,11 @@ class State(args:Any*) extends Map[String, Any] {
 
 class StateBuilder {
   private val inner_buffer = ArrayBuffer[(String, Any)]()
-  def +=(elem:(String, Any)) {inner_buffer += elem}
-  def ++=(elems:Seq[(String, Any)]) {inner_buffer ++= elems}
+  def +=(elem:(String, Any)*):this.type = {inner_buffer ++= elem; this}
+  def ++=(elems:Seq[(String, Any)]):this.type = {inner_buffer ++= elems; this}
   def toState = State(inner_buffer:_*)
+  def clear() {inner_buffer.clear()}
+  def nonEmpty:Boolean = {inner_buffer.nonEmpty}
 }
 
 object State {

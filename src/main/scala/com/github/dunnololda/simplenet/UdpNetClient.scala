@@ -8,6 +8,7 @@ import akka.pattern.ask
 import ExecutionContext.Implicits.global
 import java.lang.String
 import collection.mutable.ArrayBuffer
+import scala.collection.mutable
 
 object UdpNetClient {
   def apply(address:String, port: Int, buffer_size:Int = 1024, ping_timeout: Long = 1000, check_timeout:Long = 10000, delimiter:Char = '#') =
@@ -18,7 +19,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   private val log = MySimpleLogger(this.getClass.getName)
   private val client_socket = new DatagramSocket()
 
-  private val system = ActorSystem("udpclient-listener-" + (new java.text.SimpleDateFormat("yyyyMMddHHmmss")).format(new java.util.Date()))
+  private val system = ActorSystem("udpclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
   private val udp_client_listener = system.actorOf(Props(new UdpClientListener(client_socket, address, port, ping_timeout, check_timeout, delimiter)))
   private var current_buffer_size = buffer_size
   private var receive_data = new Array[Byte](buffer_size)
@@ -47,26 +48,26 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   receive()
 
   def newEvent(func: PartialFunction[UdpEvent, Any]) = {
-    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event)
   }
 
   def newEventOrDefault[T](default: T)(func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = (1 minute)), 1 minute).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
   def waitNewEvent[T](func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_client_listener.ask(WaitForEvent)(timeout = (1000 days)), 1000 days).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_client_listener.ask(WaitForEvent)(timeout = 1000.days), 1000 days).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
   def isConnected:Boolean = {
-    Await.result(udp_client_listener.ask(IsConnected)(timeout = (1 minute)), 1 minute).asInstanceOf[Boolean]
+    Await.result(udp_client_listener.ask(IsConnected)(timeout = 1.minute), 1 minute).asInstanceOf[Boolean]
   }
 
   def waitConnection() {
-    Await.result(udp_client_listener.ask(WaitConnection)(timeout = (1000 days)), 1000 days)
+    Await.result(udp_client_listener.ask(WaitConnection)(timeout = 1000.days), 1000 days)
   }
 
   def send(message: State) {
@@ -74,7 +75,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 
   def disconnect() {
-    Await.result(udp_client_listener.ask(Disconnect)(timeout = (1000 days)), 1000 days)
+    Await.result(udp_client_listener.ask(Disconnect)(timeout = 1000.days), 1000 days)
   }
 
   def stop() {
@@ -114,20 +115,39 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
     log.info("starting actor " + self.path.toString)
     import scala.concurrent.ExecutionContext.Implicits.global
     if (ping_timeout > 0) {
-      context.system.scheduler.schedule(initialDelay = (ping_timeout milliseconds), interval = (ping_timeout milliseconds)) {
+      context.system.scheduler.schedule(initialDelay = ping_timeout.milliseconds, interval = ping_timeout.milliseconds) {
         self ! Ping
       }
     }
     if (check_timeout > 0) {
-      context.system.scheduler.schedule(initialDelay = (check_timeout milliseconds), interval = (check_timeout milliseconds)) {
+      context.system.scheduler.schedule(initialDelay = check_timeout.milliseconds, interval = check_timeout.milliseconds) {
         self ! Check
       }
     }
   }
 
+  /*private val char_freqs = mutable.HashMap[Char, Int]()
+  private def recountFreqs(str:String) {
+    str.foreach(c => {
+      char_freqs(c) = char_freqs.getOrElse(c, 0) + 1
+    })
+  }
+  private def dumpCodeTableToFile(filename:String) {
+    val code_tree = Huffman.createCodeTree(char_freqs.toMap)
+    val code_table = Huffman.convert(code_tree)
+    val fos = new java.io.FileOutputStream(filename)
+    for {
+      (char, bits) <- code_table
+    } {
+      fos.write(s"$char : ${bits.mkString(" ")}\n".getBytes)
+    }
+    fos.close()
+  }*/
+
   private def _send(message:String) {
-    val send_data = (new StringBuffer(message).append(delimiter)).toString.getBytes
-    val send_packet = new DatagramPacket(send_data, send_data.length, ip_address, port)
+    val send_data = new StringBuffer(message).append(delimiter).toString
+    //recountFreqs(send_data)
+    val send_packet = new DatagramPacket(send_data.getBytes, send_data.length, ip_address, port)
     client_socket.send(send_packet)
   }
 
@@ -146,7 +166,7 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
           is_connected = false
           processUdpEvent(UdpServerDisconnected)
         case _ =>
-          val received_data = State.fromJsonStringOrDefault(message, State(("raw" -> message)))
+          val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
           processUdpEvent(NewUdpServerData(received_data))
           last_interaction_moment = System.currentTimeMillis()
           if (!is_connected) {
@@ -168,6 +188,7 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
       _send("SN BYE")
       is_connected = false
       processUdpEvent(UdpServerDisconnected)
+      //dumpCodeTableToFile("codetable-client.sn")
       sender ! true
     case RetrieveEvent =>
       if (udp_events.isEmpty) sender ! NoNewUdpEvents
