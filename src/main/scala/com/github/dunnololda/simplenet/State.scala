@@ -1,6 +1,6 @@
 package com.github.dunnololda.simplenet
 
-import collection.{GenTraversableOnce, immutable, mutable}
+import collection.GenTraversableOnce
 import collection.mutable.ArrayBuffer
 
 /**
@@ -15,7 +15,7 @@ class State(args:Any*) extends Map[String, Any] {
     val pewpew = args.flatMap(_ match {
       case elem:(String, Any) => List(elem)
       case elem:State => elem.toList
-      case elem:Any => List((elem.toString -> true))
+      case elem:Any => List(elem.toString -> true)
     })
     Map(pewpew:_*)
   }
@@ -78,13 +78,34 @@ class State(args:Any*) extends Map[String, Any] {
   def value[A : Manifest](key:String):Option[A] = this.get(key) match {
     case Some(value) =>
       manifest[A] match {
-        case Manifest.Long    => if(value.isInstanceOf[Number]) Some(value.asInstanceOf[Number].longValue().asInstanceOf[A])   else None
-        case Manifest.Float   => if(value.isInstanceOf[Number]) Some(value.asInstanceOf[Number].floatValue().asInstanceOf[A])  else None
-        case Manifest.Double  => if(value.isInstanceOf[Number]) Some(value.asInstanceOf[Number].doubleValue().asInstanceOf[A]) else None
-        case Manifest.Int     => if(value.isInstanceOf[Number]) Some(value.asInstanceOf[Number].intValue().asInstanceOf[A])    else None
-        case Manifest.Short   => if(value.isInstanceOf[Number]) Some(value.asInstanceOf[Number].shortValue().asInstanceOf[A])  else None
-        case Manifest.Byte    => if(value.isInstanceOf[Number]) Some(value.asInstanceOf[Number].byteValue().asInstanceOf[A])   else None
-        case Manifest.Char    => if(value.isInstanceOf[Char])   Some(value.asInstanceOf[Char].asInstanceOf[A])                 else None
+        case Manifest.Long    => value match {
+          case number: Number => Some(number.longValue().asInstanceOf[A])
+          case _ => None
+        }
+        case Manifest.Float   => value match {
+          case number: Number => Some(number.floatValue().asInstanceOf[A])
+          case _ => None
+        }
+        case Manifest.Double  => value match {
+          case number: Number => Some(number.doubleValue().asInstanceOf[A])
+          case _ => None
+        }
+        case Manifest.Int     => value match {
+          case number: Number => Some(number.intValue().asInstanceOf[A])
+          case _ => None
+        }
+        case Manifest.Short   => value match {
+          case number: Number => Some(number.shortValue().asInstanceOf[A])
+          case _ => None
+        }
+        case Manifest.Byte    => value match {
+          case number: Number => Some(number.byteValue().asInstanceOf[A])
+          case _ => None
+        }
+        case Manifest.Char    => value match {
+          case c: Char => Some(c.asInstanceOf[A])
+          case _ => None
+        }
         case Manifest.Boolean =>
           value.toString match {
             case "true"  => Some(true.asInstanceOf[A])
@@ -106,13 +127,34 @@ class State(args:Any*) extends Map[String, Any] {
     get(key) match {
       case Some(value) =>
         manifest[A] match {
-          case Manifest.Long    => if(value.isInstanceOf[Number]) value.asInstanceOf[Number].longValue().asInstanceOf[A]   else default
-          case Manifest.Float   => if(value.isInstanceOf[Number]) value.asInstanceOf[Number].floatValue().asInstanceOf[A]  else default
-          case Manifest.Double  => if(value.isInstanceOf[Number]) value.asInstanceOf[Number].doubleValue().asInstanceOf[A] else default
-          case Manifest.Int     => if(value.isInstanceOf[Number]) value.asInstanceOf[Number].intValue().asInstanceOf[A]    else default
-          case Manifest.Short   => if(value.isInstanceOf[Number]) value.asInstanceOf[Number].shortValue().asInstanceOf[A]  else default
-          case Manifest.Byte    => if(value.isInstanceOf[Number]) value.asInstanceOf[Number].byteValue().asInstanceOf[A]   else default
-          case Manifest.Char    => if(value.isInstanceOf[Char])   value.asInstanceOf[Char].asInstanceOf[A]                 else default
+          case Manifest.Long    => value match {
+            case number: Number => number.longValue().asInstanceOf[A]
+            case _ => default
+          }
+          case Manifest.Float   => value match {
+            case number: Number => number.floatValue().asInstanceOf[A]
+            case _ => default
+          }
+          case Manifest.Double  => value match {
+            case number: Number => number.doubleValue().asInstanceOf[A]
+            case _ => default
+          }
+          case Manifest.Int     => value match {
+            case number: Number => number.intValue().asInstanceOf[A]
+            case _ => default
+          }
+          case Manifest.Short   => value match {
+            case number: Number => number.shortValue().asInstanceOf[A]
+            case _ => default
+          }
+          case Manifest.Byte    => value match {
+            case number: Number => number.byteValue().asInstanceOf[A]
+            case _ => default
+          }
+          case Manifest.Char    => value match {
+            case c: Char => c.asInstanceOf[A]
+            case _ => default
+          }
           case Manifest.Boolean =>
             value.toString match {
               case "true"  => true.asInstanceOf[A]
@@ -137,9 +179,9 @@ class State(args:Any*) extends Map[String, Any] {
 
   def -(key: String): State = State(iterator.toSeq.filterNot(_._1 == key):_*)
 
-  def +[B1 >: Any](kv: (String, B1)): State = State((kv :: iterator.toList):_*)
+  def +[B1 >: Any](kv: (String, B1)): State = State(kv :: iterator.toList:_*)
 
-  override def ++[B1 >: Any](xs: GenTraversableOnce[(String, B1)]): State = State((iterator.toList ::: xs.toList):_*)
+  override def ++[B1 >: Any](xs: GenTraversableOnce[(String, B1)]): State = State(iterator.toList ::: xs.toList:_*)
 }
 
 class StateBuilder {
