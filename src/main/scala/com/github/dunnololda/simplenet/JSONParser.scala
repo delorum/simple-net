@@ -15,23 +15,22 @@ class JSONParser extends JavaTokenParsers {
   private lazy val arr: Parser[List[Any]] =
     "["~> repsep(value, ",") <~"]"
 
-  private lazy val anyString = ("""([^"\p{Cntrl}\\]|\\[\\/bfnrt]|\\u[a-fA-F0-9]{4})*""").r
+  private lazy val anyString = """([^"\p{Cntrl}\\]|\\[\\/bfnrt]|\\u[a-fA-F0-9]{4})*""".r
 
-  private lazy val my_ident = ("""([^"\p{Cntrl}\\]|\\[\\/bfnrt]|\\u[a-fA-F0-9]{4})*""").r
+  //private lazy val my_ident = """([^"\p{Cntrl}\\]|\\[\\/bfnrt]|\\u[a-fA-F0-9]{4})*""".r
 
-  private lazy val member: Parser[(String, Any)] = (
-    "\""~anyString~"\""~":"~value ^^ { case "\""~member_name~"\""~":"~member_value => (member_name, member_value) }
-  )
+  private lazy val member: Parser[(String, Any)] = "\"" ~ anyString ~ "\"" ~ ":" ~ value ^^ {
+    case "\"" ~ member_name ~ "\"" ~ ":" ~ member_value => (member_name, member_value)
+  }
 
-  private lazy val value: Parser[Any] = (
-      obj
-    | arr
-    | "\""~anyString~"\"" ^^ {case "\""~name~"\"" => name}
-    | floatingPointNumber ^^ (_.toFloat)
-    | "null" ^^ (x => null)
-    | "true" ^^ (x => true)
-    | "false" ^^ (x => false)
-  )
+  private lazy val value: Parser[Any] =
+    obj |
+    arr |
+    "\""~anyString~"\"" ^^ {case "\""~name~"\"" => name} |
+    floatingPointNumber ^^ {case x => x.toDouble} |
+    "null" ^^ (x => null) |
+    "true" ^^ (x => true) |
+    "false" ^^ (x => false)
 
   def evaluate(json:String):Option[State] =
     parseAll(obj, json) match {
