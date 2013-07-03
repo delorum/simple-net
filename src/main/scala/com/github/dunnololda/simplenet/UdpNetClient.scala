@@ -8,7 +8,6 @@ import akka.pattern.ask
 import ExecutionContext.Implicits.global
 import java.lang.String
 import collection.mutable.ArrayBuffer
-import scala.collection.mutable
 
 object UdpNetClient {
   def apply(address:String, port: Int, buffer_size:Int = 1024, ping_timeout: Long = 1000, check_timeout:Long = 10000, delimiter:Char = '#') =
@@ -83,6 +82,14 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
     system.shutdown()
     client_socket.close()
   }
+
+  def ignoreEvents:Boolean = {
+    Await.result(udp_client_listener.ask(IgnoreStatus)(timeout = 1.minute), 1 minute).asInstanceOf[Boolean]
+  }
+
+  def ignoreEvents_=(enabled:Boolean) {
+    udp_client_listener ! IgnoreEvents(enabled)
+  }
 }
 
 class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, ping_timeout:Long, check_timeout:Long, delimiter:Char) extends Actor {
@@ -151,6 +158,8 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
     client_socket.send(send_packet)
   }
 
+  private var ignore_mode = false
+
   def receive = {
     case NewUdpServerPacket(message) =>
       //log.info(s"received message: $message")
@@ -166,8 +175,10 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
           is_connected = false
           processUdpEvent(UdpServerDisconnected)
         case _ =>
-          val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
-          processUdpEvent(NewUdpServerData(received_data))
+          if (!ignore_mode) {
+            val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
+            processUdpEvent(NewUdpServerData(received_data))
+          }
           last_interaction_moment = System.currentTimeMillis()
           if (!is_connected) {
             processUdpEvent(UdpServerConnected)
@@ -201,5 +212,9 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
     case WaitConnection =>
       if (is_connected) sender ! true
       else connection_waiter = Some(sender)
+    case IgnoreEvents(enabled) =>
+      ignore_mode = enabled
+    case IgnoreStatus =>
+      sender ! ignore_mode
   }
 }

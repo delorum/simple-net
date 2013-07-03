@@ -25,8 +25,8 @@ package object simplenet {
   case object ServerConnected extends NetworkEvent
   case object ServerDisconnected extends NetworkEvent
   case class NewServerMessage(data:State) extends NetworkEvent
-
   case object NoNewEvents extends NetworkEvent
+
   sealed abstract class UdpEvent
   case class NewUdpConnection(client_id:Long) extends UdpEvent
   case class NewUdpClientPacket(location:UdpClientLocation, message:String) extends UdpEvent
@@ -37,6 +37,8 @@ package object simplenet {
   case object UdpServerConnected extends UdpEvent
   case object UdpServerDisconnected extends UdpEvent
   case object NoNewUdpEvents extends UdpEvent
+  case class IgnoreEvents(enabled:Boolean) extends UdpEvent
+  case object IgnoreStatus
 
   case class UdpClientLocation(address:InetAddress, port:Int)
   case class UdpClient(id:Long, location:UdpClientLocation, var last_interaction_moment:Long)

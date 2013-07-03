@@ -91,6 +91,14 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
     system.shutdown()
     server_socket.close()
   }
+
+  def ignoreEvents:Boolean = {
+    Await.result(udp_server_listener.ask(IgnoreStatus)(timeout = 1.minute), 1 minute).asInstanceOf[Boolean]
+  }
+
+  def ignoreEvents_=(enabled:Boolean) {
+    udp_server_listener ! IgnoreEvents(enabled)
+  }
 }
 
 /*case object DumpCodeTable
@@ -195,6 +203,8 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
     server_socket.send(send_packet)
   }
 
+  private var ignore_mode = false
+
   def receive = {
     case NewUdpClientPacket(location, message) =>
       //log.info(s"received message: $message from ${location.address}:${location.port}")
@@ -224,10 +234,12 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
             case None =>
           }
         case _ =>
-          val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
           clients_by_location.get(location) match {
             case Some(client) =>
-              processUdpEvent(NewUdpClientData(client.id, received_data))
+              if (!ignore_mode) {
+                val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
+                processUdpEvent(NewUdpClientData(client.id, received_data))
+              }
               client.last_interaction_moment = System.currentTimeMillis()
             case None =>
           }
@@ -287,5 +299,9 @@ class UdpServerListener(server_socket:DatagramSocket, ping_timeout:Long, check_t
       else event_waiter = Some(sender)
     case ClientIds =>
       sender ! clients_by_id.keys.toList
+    case IgnoreEvents(enabled) =>
+      ignore_mode = enabled
+    case IgnoreStatus =>
+      sender ! ignore_mode
   }
 }
