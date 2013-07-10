@@ -149,7 +149,6 @@ object Huffman {
   }
 
   def createCodeTree(char_freqs: Map[Char, Int]): CodeTree = {
-    //println("creating tree from chars: "+chars.mkString)
     val trees = makeOrderedLeafList(char_freqs.toSeq)
     until(singleton, combine)(trees)
   }
@@ -163,21 +162,23 @@ object Huffman {
    * This function decodes the bit sequence `bits` using the code tree `tree` and returns
    * the resulting list of characters.
    */
-  def decode(tree: CodeTree, bits: List[Bit]): List[Char] = {
-    def _decode(_tree:CodeTree, _bits:List[Bit], acc:List[Char]):List[Char] = {
+  def decode(tree: CodeTree, bits: Seq[Bit], delimiter:Char):Option[List[Char]] = {
+    def _decode(_tree:CodeTree, _bits:List[Bit], acc:List[Char]):Option[List[Char]] = {
       _tree match {
         case Fork(left, right, chars, weight) =>
           _bits match {
-            case Nil => acc
+            case Nil => None
             case head :: tail => head match {
               case 0 => _decode(left, tail, acc)
               case 1 => _decode(right, tail, acc)
             }
           }
-        case Leaf(char, weight) => _decode(tree, _bits, char :: acc)
+        case Leaf(char, weight) =>
+          if(char == delimiter) Some(char :: acc)
+          else _decode(tree, _bits, char :: acc)
       }
     }
-    _decode(tree, bits, List()).reverse
+    _decode(tree, bits.toList, List()).map(_.reverse)
   }
 
   /**
@@ -192,13 +193,6 @@ object Huffman {
    * For the decoding use the 'frenchCode' Huffman tree defined above.
    */
   val secret: List[Bit] = List(0,0,1,1,1,0,1,0,1,1,1,0,0,1,1,0,1,0,0,1,1,0,1,0,1,1,0,0,1,1,1,1,1,0,1,0,1,1,0,0,0,0,1,0,1,1,1,0,0,1,0,0,1,0,0,0,1,0,0,0,1,0,1)
-
-  /**
-   * Write a function that returns the decoded secret
-   */
-  val decodedSecret: List[Char] = decode(frenchCode, secret)
-
-
 
   // Part 4a: Encoding using Huffman tree
 
@@ -230,7 +224,7 @@ object Huffman {
 
   // Part 4b: Encoding using code table
 
-  type CodeTable = List[(Char, List[Bit])]
+  type CodeTable = Map[Char, List[Bit]]
 
   /**
    * This function returns the bit sequence that represents the character `char` in
@@ -252,7 +246,7 @@ object Huffman {
     def convert2(_tree: CodeTree, acc:List[Bit]): CodeTable = _tree match {
       case Fork(left, right, chars, weight) =>
         mergeCodeTables(convert2(left, 0 :: acc), convert2(right, 1 :: acc))
-      case Leaf(char, weight) => List((char, acc.reverse))
+      case Leaf(char, weight) => Map(char -> acc.reverse)
     }
     convert2(tree, List())
   }
@@ -263,13 +257,13 @@ object Huffman {
    * on the two parameter code tables.
    */
   def mergeCodeTables(a: CodeTable, b: CodeTable): CodeTable = {
-    (a.map(_._1) ++ b.map(_._1)).distinct.map(char => {
+    (a.keys.toList ::: b.keys.toList).distinct.distinct.map(char => {
       (codeBits(a)(char), codeBits(b)(char)) match {
         case (Nil, lb) => (char, lb)
         case (la, Nil) => (char, la)
         case (la, lb) => if(la.length < lb.length) (char, la) else (char, lb)
       }
-    })
+    }).toMap
   }
 
   /**
@@ -281,5 +275,128 @@ object Huffman {
   def quickEncode(tree: CodeTree)(text: List[Char]): List[Bit] = {
     val table = convert(tree)
     text.flatMap(char => codeBits(table)(char))
+  }
+
+  def dumpCodeTableToFile(filename:String, char_freqs:Map[Char, Int]) {
+    val code_tree = createCodeTree(char_freqs)
+    val code_table = Huffman.convert(code_tree)
+    val fos = new java.io.FileOutputStream(filename)
+    for {
+      (char, bits) <- code_table.toList.sortBy(_._2.length)
+    } {
+      fos.write(s"$char : ${bits.mkString(" ")}\n".getBytes)
+    }
+    fos.close()
+  }
+
+  def dumpCharFreqsToFile(filename:String, char_freqs:Map[Char, Int]) {
+    val fos = new java.io.FileOutputStream(filename)
+    for {
+      (char, freq) <- char_freqs.toList.sortBy(-_._2)
+    } {
+      fos.write(s"$char : $freq\n".getBytes)
+    }
+    fos.close()
+  }
+
+  def dumpCodeTableAsScalaToFile(filename:String, char_freqs:Map[Char, Int]) {
+    val code_tree = createCodeTree(char_freqs)
+    val code_table = Huffman.convert(code_tree)
+    val fos = new java.io.FileOutputStream(filename)
+    fos.write("Map(\n".getBytes)
+    val code_table_list = code_table.toList
+    val code_table_list_len = code_table_list.length
+    for {
+      ((char, bits), idx) <- code_table_list.sortBy(_._2.length).zipWithIndex
+      last_comma = idx < code_table_list_len-1
+    } {
+      fos.write(s"  '$char' -> ${bits.mkString("List(", ", ", ")")}${if(last_comma)"," else ""}\n".getBytes)
+    }
+    fos.write(")".getBytes)
+    fos.close()
+  }
+
+  def dumpCodeTreeAsScalaToFile(filename:String, char_freqs:Map[Char, Int]) {
+    val code_tree = createCodeTree(char_freqs)
+    val fos = new java.io.FileOutputStream(filename)
+    fos.write(code_tree.toString.getBytes)
+    fos.close()
+  }
+
+  def dumpCharFreqsAsScalaToFile(filename:String, char_freqs:Map[Char, Int]) {
+    val fos = new java.io.FileOutputStream(filename)
+    fos.write("Map(\n".getBytes)
+    val char_freqs_list = char_freqs.toList
+    val char_freqs_list_len = char_freqs_list.length
+    for {
+      ((char, freq), idx) <- char_freqs_list.sortBy(-_._2).zipWithIndex
+      last_comma = idx < char_freqs_list_len-1
+    } {
+      fos.write(s"  '$char' -> $freq${if(last_comma)"," else ""}\n".getBytes)
+    }
+    fos.write(")".getBytes)
+    fos.close()
+  }
+
+  def loadCodeTableFromFile(filename:String):CodeTable = {
+    (for {
+      line <- io.Source.fromFile(filename).getLines()
+      char_and_bits = line.split(":")
+      char = char_and_bits(0).trim().head
+      bits = char_and_bits(1).trim().split(" ").map(_.toInt).toList
+    } yield (char, bits)).toMap
+  }
+
+  def loadCodeTreeFromFile(filename:String):CodeTree = {
+    createCodeTree((for {
+      line <- io.Source.fromFile(filename).getLines()
+      char_and_freq = line.split(":")
+      if char_and_freq.length == 2
+      char = char_and_freq(0).trim.head
+      freq = char_and_freq(1).trim.toInt
+    } yield (char, freq)).toMap)
+  }
+
+  private def bits2byte(bits:Seq[Bit]):Byte = {
+    bits.zip(List(128, 64, 32, 16, 8, 4, 2, 1)).foldLeft(0) {
+      case (res, (bit, x)) => res + bit*x
+    }.toByte
+  }
+
+  def encodeMessage(message:String, code_table:CodeTable):Option[Array[Byte]] = {
+    if(message.distinct.exists(c => !code_table.contains(c))) {
+      println(message.distinct.filter(c => !code_table.contains(c)))
+      None
+    }
+    else {
+      val bits = message.flatMap(c => code_table(c))
+      val len = {
+        if(bits.length % 8 == 0) bits.length
+        else 8*((bits.length/8f).toInt+1)
+      }
+      val ee = bits.padTo(len, 0)
+      Some(ee.grouped(8).map(l => bits2byte(l)).toArray)
+    }
+  }
+
+  private def bit(byte:Byte, bit_pos:Int):Int = if((byte & bit_pos) > 0) 1 else 0
+
+  def bytes2BitList(d:Seq[Byte]):Seq[Bit] = {
+    d.flatMap(x => {
+      List(
+        bit(x, 128),
+        bit(x, 64),
+        bit(x, 32),
+        bit(x, 16),
+        bit(x, 8),
+        bit(x, 4),
+        bit(x, 2),
+        bit(x, 1)
+      )
+    })
+  }
+
+  def decodeMessage(tree: CodeTree, message:Seq[Byte], delimiter:Char):Option[String] = {
+    decode(tree, bytes2BitList(message), delimiter).map(_.mkString)
   }
 }

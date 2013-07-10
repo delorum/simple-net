@@ -92,7 +92,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 }
 
-class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, ping_timeout:Long, check_timeout:Long, delimiter:Char) extends Actor {
+private class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, ping_timeout:Long, check_timeout:Long, delimiter:Char) extends Actor {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val ip_address = InetAddress.getByName(address)
@@ -121,39 +121,20 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
   override def preStart() {
     log.info("starting actor " + self.path.toString)
     import scala.concurrent.ExecutionContext.Implicits.global
-    if (ping_timeout > 0) {
-      context.system.scheduler.schedule(initialDelay = ping_timeout.milliseconds, interval = ping_timeout.milliseconds) {
-        self ! Ping
-      }
-    }
-    if (check_timeout > 0) {
-      context.system.scheduler.schedule(initialDelay = check_timeout.milliseconds, interval = check_timeout.milliseconds) {
-        self ! Check
-      }
-    }
-  }
 
-  /*private val char_freqs = mutable.HashMap[Char, Int]()
-  private def recountFreqs(str:String) {
-    str.foreach(c => {
-      char_freqs(c) = char_freqs.getOrElse(c, 0) + 1
-    })
-  }
-  private def dumpCodeTableToFile(filename:String) {
-    val code_tree = Huffman.createCodeTree(char_freqs.toMap)
-    val code_table = Huffman.convert(code_tree)
-    val fos = new java.io.FileOutputStream(filename)
-    for {
-      (char, bits) <- code_table
-    } {
-      fos.write(s"$char : ${bits.mkString(" ")}\n".getBytes)
+    val checked_ping_timeout = if(ping_timeout > 0) ping_timeout else 1000
+    context.system.scheduler.schedule(initialDelay = checked_ping_timeout.milliseconds, interval = checked_ping_timeout.milliseconds) {
+      self ! Ping
     }
-    fos.close()
-  }*/
+
+    val checked_check_timeout = if(check_timeout > checked_ping_timeout) check_timeout else checked_ping_timeout*10
+    context.system.scheduler.schedule(initialDelay = checked_check_timeout.milliseconds, interval = checked_check_timeout.milliseconds) {
+      self ! Check
+    }
+  }
 
   private def _send(message:String) {
     val send_data = new StringBuffer(message).append(delimiter).toString
-    //recountFreqs(send_data)
     val send_packet = new DatagramPacket(send_data.getBytes, send_data.length, ip_address, port)
     client_socket.send(send_packet)
   }
@@ -199,7 +180,6 @@ class UdpClientListener(client_socket:DatagramSocket, address:String, port:Int, 
       _send("SN BYE")
       is_connected = false
       processUdpEvent(UdpServerDisconnected)
-      //dumpCodeTableToFile("codetable-client.sn")
       sender ! true
     case RetrieveEvent =>
       if (udp_events.isEmpty) sender ! NoNewUdpEvents
