@@ -67,9 +67,8 @@ Let's start with this simple echo server:
       }
     }
     
-`message` is of type `State`. See 
+`message` is of type `State`. See below to learn more about this class or check the source code:
 https://github.com/dunnololda/simple-net/blob/master/src/main/scala/com/github/dunnololda/simplenet/State.scala 
-to learn more about this class. 
 
 If the port we are trying to bind on is busy, server tries to bind on any port higher then that until it found a
 free one.
@@ -233,5 +232,76 @@ These are client event types:
 If client is failed to connect to a server or server is disconnected, client will try to reconnect in background. 
 No additional user concerns are required. There is `isConnected:Boolean` method to check if client is currently 
 connected.
+
+Class State
+-----------
+
+`State` is a universal immutable container to store data of any kind, able to represent it as JSON strings. Create State objects this way:
+
+    val s = State("one" -> 1, "two" -> 2, "three" -> State("four" -> 4))
+
+Also you can create them in iterative way using builder:
+
+    val b = State.newBuilder
+    b += ("one" -> 1)
+    b += ("two" -> 2)
+    b += ("three" -> State("four" -> 4))
+    val s = b.toState
+
+To serialize State to JSON String use toJsonString method:
+
+    scala> val s = State("one" -> 1, "two" -> 2, "three" -> State("four" -> 4))
+    s: State = State(one -> 1, two -> 2, three -> State(four -> 4))
+
+    scala> s.toJsonString
+    res0: String = {"one":1, "two":2, "three":{"four":4}}
+
+To create State from JSON string you can use these methods from object State:
+
+    def fromJsonString(json:String):Option[State]
+    def fromJsonStringOrDefault(json:String, default_state:State = State()):State
+
+For example:
+
+    scala> State.fromJsonString("""{"one":1, "two":2, "three":{"four":4}}""")
+    res1: Option[State] = Some(State(one -> 1.0, two -> 2.0, three -> State(four -> 4.0)))
+
+To retrieve data from State you can use pattern matching or `value`, `valueOrDefault` as shown in section above:
+
+    scala> s.value[Int]("one")
+    res4: Option[Int] = Some(1)
+
+UDP Client and Server
+---------------------
+
+Since version 1.2 client and server able to communicate via udp. Classes to handle udp: `UdpNetServer` and `UdpNetclient` were added. Mostly api is the very same except few differences. Since udp is a stateless protocol, constant ping/checks required. First ping received from some location considered as New Connection event. No more pings for some period considered as Client or Server Disconnected event.
+
+Create udp server this way:
+    
+    val server = UdpNetServer(port = 10000, ping_timeout= 1000, check_timeout = 5000)
+
+There are two more params: `buffer_size:Int` and `delimiter:Char`. Defaults are 1024 and '#'. `buffer_size` is the size of the array, in which
+messages accumulates. If the message received is more then buffer size, the size would be increased automatically (although the message would be gone). Delimiter is the char to mark the end of the message, so the message itself must not contain such char.
+
+Udp client may be created this way:
+
+    val client = UdpNetClient(address = "localhost", port = 10000, ping_timeout= 1000, check_timeout = 5000)
+
+These types of events can be received in udp server using `newEvent`, `newEventOrDefault` or `waitNewEvent` methods:
+
+    case class NewUdpConnection(client_id:Long) extends UdpEvent
+    case class NewUdpClientPacket(location:UdpClientLocation, message:String) extends UdpEvent
+    case class NewUdpClientData(client_id:Long, data:State) extends UdpEvent
+    case class UdpClientDisconnected(client_id:Long) extends UdpEvent
+    case object NoNewUdpEvents extends UdpEvent
+
+These types of events can be received in udp client:
+
+    case class NewUdpConnection(client_id:Long) extends UdpEvent
+    case class NewUdpServerPacket(message:String) extends UdpEvent
+    case class NewUdpServerData(data:State) extends UdpEvent
+    case object UdpServerConnected extends UdpEvent
+    case object UdpServerDisconnected extends UdpEvent
+    case object NoNewUdpEvents extends UdpEvent
 
 It was a brief overview. To learn more about the simple-net please check the source code or email me.
