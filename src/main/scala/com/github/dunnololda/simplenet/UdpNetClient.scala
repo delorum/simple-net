@@ -1,13 +1,15 @@
 package com.github.dunnololda.simplenet
 
-import akka.actor.{ActorRef, Actor, Props, ActorSystem}
-import java.net.{InetAddress, DatagramPacket, DatagramSocket}
+import java.net.{DatagramPacket, DatagramSocket, InetAddress}
+
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import akka.pattern.ask
+import com.github.dunnololda.state.State
+
+import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent._
 import scala.concurrent.duration._
-import akka.pattern.ask
-import ExecutionContext.Implicits.global
-import java.lang.String
-import collection.mutable.ArrayBuffer
 
 object UdpNetClient {
   def apply(address:String, port: Int, buffer_size:Int = 1024, ping_timeout: Long = 1000, check_timeout:Long = 10000, delimiter:Char = '#') =
@@ -47,26 +49,26 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   receive()
 
   def newEvent(func: PartialFunction[UdpEvent, Any]) = {
-    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event)
   }
 
   def newEventOrDefault[T](default: T)(func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
   def waitNewEvent[T](func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_client_listener.ask(WaitForEvent)(timeout = 1000.days), 1000 days).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_client_listener.ask(WaitForEvent)(timeout = 1000.days), 1000.days).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
   def isConnected:Boolean = {
-    Await.result(udp_client_listener.ask(IsConnected)(timeout = 1.minute), 1 minute).asInstanceOf[Boolean]
+    Await.result(udp_client_listener.ask(IsConnected)(timeout = 1.minute), 1.minute).asInstanceOf[Boolean]
   }
 
   def waitConnection() {
-    Await.result(udp_client_listener.ask(WaitConnection)(timeout = 1000.days), 1000 days)
+    Await.result(udp_client_listener.ask(WaitConnection)(timeout = 1000.days), 1000.days)
   }
 
   def send(message: State) {
@@ -74,7 +76,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 
   def disconnect() {
-    Await.result(udp_client_listener.ask(Disconnect)(timeout = 1000.days), 1000 days)
+    Await.result(udp_client_listener.ask(Disconnect)(timeout = 1000.days), 1000.days)
   }
 
   def stop() {
@@ -84,7 +86,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 
   def ignoreEvents:Boolean = {
-    Await.result(udp_client_listener.ask(IgnoreStatus)(timeout = 1.minute), 1 minute).asInstanceOf[Boolean]
+    Await.result(udp_client_listener.ask(IgnoreStatus)(timeout = 1.minute), 1.minute).asInstanceOf[Boolean]
   }
 
   def ignoreEvents_=(enabled:Boolean) {

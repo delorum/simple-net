@@ -3,6 +3,8 @@ package com.github.dunnololda.simplenet
 import java.net._
 import akka.actor.{Props, ActorSystem, Actor, ActorRef}
 import java.io.{InputStreamReader, BufferedReader, OutputStreamWriter, PrintWriter}
+import com.github.dunnololda.state.State
+
 import scala.concurrent._
 import scala.concurrent.duration._
 import akka.pattern.ask
@@ -43,17 +45,17 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   serverSocketAccept()
 
   def newEvent(func: PartialFunction[NetworkEvent, Any]) = {
-    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event)
   }
 
   def fromNewEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(client_handler.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
   def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(client_handler.ask(WaitForEvent)(timeout = 1000.days), 1000 days).asInstanceOf[NetworkEvent]
+    val event = Await.result(client_handler.ask(WaitForEvent)(timeout = 1000.days), 1000.days).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
@@ -70,7 +72,7 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   }
 
   def disconnectAll() {
-    Await.result(client_handler.ask(Disconnect)(timeout = 1000.days), 1000 days)
+    Await.result(client_handler.ask(Disconnect)(timeout = 1000.days), 1000.days)
   }
 
   def stop() {
@@ -80,7 +82,7 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
   }
 
   def clientIds:List[Long] = {
-    Await.result(client_handler.ask(ClientIds)(timeout = 1.minute), 1 minute).asInstanceOf[List[Long]]
+    Await.result(client_handler.ask(ClientIds)(timeout = 1.minute), 1.minute).asInstanceOf[List[Long]]
   }
 }
 
@@ -182,7 +184,7 @@ class ClientHandler extends Actor {
     case DisconnectClient(client_id) =>
       clients.get(client_id).foreach(client => client ! Disconnect)
     case Disconnect =>
-      clients.values.foreach(client => Await.result(client.ask(Disconnect)(timeout = 1000.days), 1000 days))
+      clients.values.foreach(client => Await.result(client.ask(Disconnect)(timeout = 1000.days), 1000.days))
       sender ! true
   }
 }

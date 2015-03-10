@@ -1,8 +1,9 @@
 package samples
 
-import org.junit._
-import Assert._
 import com.github.dunnololda.simplenet._
+import com.github.dunnololda.state.State
+import org.junit.Assert._
+import org.junit._
 
 @Test
 class AppTest {

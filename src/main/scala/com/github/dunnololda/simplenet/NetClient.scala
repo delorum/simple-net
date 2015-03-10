@@ -3,6 +3,8 @@ package com.github.dunnololda.simplenet
 import akka.actor.{Props, ActorSystem, ActorRef, Actor}
 import java.net.Socket
 import java.io.{InputStreamReader, BufferedReader, OutputStreamWriter, PrintWriter}
+import com.github.dunnololda.state.State
+
 import scala.concurrent.duration._
 import concurrent.Await
 import akka.pattern.ask
@@ -124,26 +126,26 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   }))
 
   def newEvent(func: PartialFunction[NetworkEvent, Any]) = {
-    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event)
   }
 
   def fromNewEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = 1.minute), 1 minute).asInstanceOf[NetworkEvent]
+    val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
   def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(connection_handler.ask(WaitForEvent)(timeout = 1000.days), 1000 days).asInstanceOf[NetworkEvent]
+    val event = Await.result(connection_handler.ask(WaitForEvent)(timeout = 1000.days), 1000.days).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
   def isConnected:Boolean = {
-    Await.result(connection_handler.ask(IsConnected)(timeout = 1.minute), 1 minute).asInstanceOf[Boolean]
+    Await.result(connection_handler.ask(IsConnected)(timeout = 1.minute), 1.minute).asInstanceOf[Boolean]
   }
 
   def waitConnection() {
-    Await.result(connection_handler.ask(WaitConnection)(timeout = 1000.days), 1000 days)
+    Await.result(connection_handler.ask(WaitConnection)(timeout = 1000.days), 1000.days)
   }
 
   def send(message: State) {
@@ -151,7 +153,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   }
 
   def disconnect() {
-    Await.result(connection_handler.ask(Disconnect)(timeout = 1000.days), 1000 days)
+    Await.result(connection_handler.ask(Disconnect)(timeout = 1000.days), 1000.days)
   }
 
   def stop() {

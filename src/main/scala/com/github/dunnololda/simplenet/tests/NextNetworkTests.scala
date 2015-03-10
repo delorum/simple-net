@@ -1,8 +1,7 @@
 package com.github.dunnololda.simplenet.tests
 
-import com.github.dunnololda.simplenet._
-import com.github.dunnololda.simplenet.NewMessage
-import scala.Some
+import com.github.dunnololda.simplenet.{NewMessage, _}
+import com.github.dunnololda.state.State
 
 object NextNetworkTests extends App {
   val server = NetServer(9000, 60000)

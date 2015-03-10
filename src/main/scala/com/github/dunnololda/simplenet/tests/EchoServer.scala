@@ -1,6 +1,7 @@
 package com.github.dunnololda.simplenet.tests
 
 import com.github.dunnololda.simplenet._
+import com.github.dunnololda.state.State
 
 object EchoServer extends App {
   val server = NetServer(port = 9000)
