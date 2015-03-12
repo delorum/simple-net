@@ -11,6 +11,11 @@ events (new connections, new data from clients, client disconnections) and prese
 
 On the client-side: one actor is created to handle all network stuff.
 
+Latest Stable Version
+=====================
+
+1.5
+
 Usage
 =====
 
