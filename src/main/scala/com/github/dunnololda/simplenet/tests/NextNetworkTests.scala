@@ -4,8 +4,8 @@ import com.github.dunnololda.simplenet.{NewMessage, _}
 import com.github.dunnololda.state.State
 
 object NextNetworkTests extends App {
-  val server = NetServer(9000, 60000)
-  val client = NetClient("localhost", server.listenPort, 60000)
+  val server = TcpNetServer(9000, 60000)
+  val client = TcpNetClient("localhost", server.listenPort, 60000)
 
   val errors = (1 to 10).foldLeft(0) { case (res, i) =>
     val i1 = (math.random*100).toInt

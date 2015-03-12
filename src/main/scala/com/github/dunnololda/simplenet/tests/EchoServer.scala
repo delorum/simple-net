@@ -4,7 +4,7 @@ import com.github.dunnololda.simplenet._
 import com.github.dunnololda.state.State
 
 object EchoServer extends App {
-  val server = NetServer(port = 9000)
+  val server = TcpNetServer(port = 9000)
 
   while(true) {
     server.waitNewEvent {
@@ -14,7 +14,7 @@ object EchoServer extends App {
 }
 
 object ArithmeticServer extends App {
-  val server = NetServer(port = 9000)
+  val server = TcpNetServer(port = 9000)
 
   while(true) {
     server.waitNewEvent {
@@ -31,7 +31,7 @@ object ArithmeticServer extends App {
 }
 
 object ArithmeticClient extends App {
-  val client = NetClient("localhost", 9000, 0)
+  val client = TcpNetClient("localhost", 9000, 0)
 
   while(true) {
     val (a, b) = ((math.random*100).toFloat, (math.random*100).toFloat)

@@ -1,17 +1,13 @@
 package com.github.dunnololda.simplenet.tests
 
-import akka.actor.{ActorRef, Actor}
+import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import com.github.dunnololda.simplenet._
-import collection.mutable.ArrayBuffer
-import com.github.dunnololda.simplenet.Send
-import com.github.dunnololda.simplenet.NewMessage
-import com.github.dunnololda.simplenet.NewConnection
 
 object AkkaIoTests extends App {
   val log = MySimpleLogger(this.getClass.getName)
 
   // echo server
-  val ns = NetServer(port = 9000, ping_timeout = 1000)
+  val ns = TcpNetServer(port = 9000, ping_timeout = 1000)
 
   // chat server
   /*NetServer(port = 9000, ping_timeout = 60000, handler_system_name = "chat-server", actor = new Actor {

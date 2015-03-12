@@ -3,17 +3,18 @@ package com.github.dunnololda.simplenet
 import akka.actor.{Props, ActorSystem, ActorRef, Actor}
 import java.net.Socket
 import java.io.{InputStreamReader, BufferedReader, OutputStreamWriter, PrintWriter}
+import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import com.github.dunnololda.state.State
 
 import scala.concurrent.duration._
 import concurrent.Await
 import akka.pattern.ask
 
-object NetClient {
-  def apply(address:String, port:Int, ping_timeout:Long = 0) = new NetClient(address, port, ping_timeout)
+object TcpNetClient {
+  def apply(address:String, port:Int, ping_timeout:Long = 0) = new TcpNetClient(address, port, ping_timeout)
 }
 
-class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
+class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val connection_listener = ActorSystem("netclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
@@ -48,7 +49,7 @@ class NetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
         }
       } catch {
         case e:Exception =>
-          log.error("failed to connect to server "+address+" at port "+port+": "+e)
+          log.error(s"failed to connect to server $address at port $port:", e)
       }
     }
 

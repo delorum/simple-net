@@ -11,8 +11,8 @@ class AppTest {
     @Test
     def testOK() {
       // arithmetic server and client
-      val server = NetServer(9000, 60000)
-      val client = NetClient("localhost", server.listenPort, 60000)
+      val server = TcpNetServer(9000, 60000)
+      val client = TcpNetClient("localhost", server.listenPort, 60000)
 
       client.waitConnection()
       (1 to 20).foreach { i =>

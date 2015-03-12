@@ -3,6 +3,7 @@ package com.github.dunnololda.simplenet
 import java.net._
 import akka.actor.{Props, ActorSystem, Actor, ActorRef}
 import java.io.{InputStreamReader, BufferedReader, OutputStreamWriter, PrintWriter}
+import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import com.github.dunnololda.state.State
 
 import scala.concurrent._
@@ -11,11 +12,11 @@ import akka.pattern.ask
 import collection.mutable
 import ExecutionContext.Implicits.global
 
-object NetServer {
-  def apply(port: Int, ping_timeout: Long = 0) = new NetServer(port, ping_timeout)
+object TcpNetServer {
+  def apply(port: Int, ping_timeout: Long = 0) = new TcpNetServer(port, ping_timeout)
 }
 
-class NetServer(port: Int, val ping_timeout: Long = 0) {
+class TcpNetServer(port: Int, val ping_timeout: Long = 0) {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val listen_port = nextAvailablePort(log, port)
@@ -37,7 +38,7 @@ class NetServer(port: Int, val ping_timeout: Long = 0) {
         client_handler ! NewConnection(new_client_id, new_client)
       } catch {
         case e:Exception =>
-          log.error(s"error receiving data from server: ${e.getLocalizedMessage}")  // likely we are just closed
+          log.error("error receiving data from server:", e)  // likely we are just closed
       }
       serverSocketAccept()
     }

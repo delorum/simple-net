@@ -2,6 +2,7 @@ package com.github.dunnololda
 
 import java.net.{InetAddress, DatagramSocket, ServerSocket}
 import akka.actor.ActorRef
+import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import com.github.dunnololda.state.State
 
 package object simplenet {

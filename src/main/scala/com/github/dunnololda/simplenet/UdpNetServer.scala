@@ -4,6 +4,7 @@ import java.net.{DatagramPacket, DatagramSocket}
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.pattern.ask
+import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import com.github.dunnololda.state.State
 
 import scala.collection.mutable
@@ -47,7 +48,7 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
         receive()
       } catch {
         case e:Exception =>
-          log.error(s"error receiving data from server: ${e.getLocalizedMessage}")  // likely we are just closed
+          log.error("error receiving data from server:", e)  // likely we are just closed
       }
     }
   }
