@@ -137,7 +137,7 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
   }
 
   def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(connection_handler.ask(WaitForEvent)(timeout = 1000.days), 1000.days).asInstanceOf[NetworkEvent]
+    val event = Await.result(connection_handler.ask(WaitForEvent)(timeout = 100.days), 100.days).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
@@ -146,7 +146,7 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
   }
 
   def waitConnection() {
-    Await.result(connection_handler.ask(WaitConnection)(timeout = 1000.days), 1000.days)
+    Await.result(connection_handler.ask(WaitConnection)(timeout = 100.days), 100.days)
   }
 
   def send(message: State) {
@@ -154,7 +154,7 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
   }
 
   def disconnect() {
-    Await.result(connection_handler.ask(Disconnect)(timeout = 1000.days), 1000.days)
+    Await.result(connection_handler.ask(Disconnect)(timeout = 100.days), 100.days)
   }
 
   def stop() {

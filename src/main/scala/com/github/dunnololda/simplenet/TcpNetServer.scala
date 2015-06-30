@@ -56,7 +56,7 @@ class TcpNetServer(port: Int, val ping_timeout: Long = 0) {
   }
 
   def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
-    val event = Await.result(client_handler.ask(WaitForEvent)(timeout = 1000.days), 1000.days).asInstanceOf[NetworkEvent]
+    val event = Await.result(client_handler.ask(WaitForEvent)(timeout = 100.days), 100.days).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
@@ -73,7 +73,7 @@ class TcpNetServer(port: Int, val ping_timeout: Long = 0) {
   }
 
   def disconnectAll() {
-    Await.result(client_handler.ask(Disconnect)(timeout = 1000.days), 1000.days)
+    Await.result(client_handler.ask(Disconnect)(timeout = 100.days), 100.days)
   }
 
   def stop() {
@@ -185,7 +185,7 @@ class ClientHandler extends Actor {
     case DisconnectClient(client_id) =>
       clients.get(client_id).foreach(client => client ! Disconnect)
     case Disconnect =>
-      clients.values.foreach(client => Await.result(client.ask(Disconnect)(timeout = 1000.days), 1000.days))
+      clients.values.foreach(client => Await.result(client.ask(Disconnect)(timeout = 100.days), 100.days))
       sender ! true
   }
 }

@@ -60,7 +60,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 
   def waitNewEvent[T](func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_client_listener.ask(WaitForEvent)(timeout = 1000.days), 1000.days).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_client_listener.ask(WaitForEvent)(timeout = 100.days), 100.days).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
@@ -69,7 +69,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 
   def waitConnection() {
-    Await.result(udp_client_listener.ask(WaitConnection)(timeout = 1000.days), 1000.days)
+    Await.result(udp_client_listener.ask(WaitConnection)(timeout = 100.days), 100.days)
   }
 
   def send(message: State) {
@@ -77,7 +77,7 @@ class UdpNetClient(val address:String, val port:Int, val buffer_size:Int = 1024,
   }
 
   def disconnect() {
-    Await.result(udp_client_listener.ask(Disconnect)(timeout = 1000.days), 1000.days)
+    Await.result(udp_client_listener.ask(Disconnect)(timeout = 100.days), 100.days)
   }
 
   def stop() {

@@ -67,7 +67,7 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
   }
 
   def disconnectAll() {
-    Await.result(udp_server_listener.ask(Disconnect)(timeout = 1000.days), 1000.days)
+    Await.result(udp_server_listener.ask(Disconnect)(timeout = 100.days), 100.days)
   }
 
   def newEvent(func: PartialFunction[UdpEvent, Any]) = {
@@ -81,7 +81,7 @@ class UdpNetServer(port:Int, val buffer_size:Int = 1024, val ping_timeout: Long 
   }
 
   def waitNewEvent[T](func: PartialFunction[UdpEvent, T]):T = {
-    val event = Await.result(udp_server_listener.ask(WaitForEvent)(timeout = 1000.days), 1000.days).asInstanceOf[UdpEvent]
+    val event = Await.result(udp_server_listener.ask(WaitForEvent)(timeout = 100.days), 100.days).asInstanceOf[UdpEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
