@@ -48,6 +48,11 @@
 -->
   <dependencies>
       <dependency>
+          <groupId>com.typesafe.play</groupId>
+          <artifactId>play-json_2.10</artifactId>
+          <version>2.3.10</version>
+      </dependency>
+      <dependency>
           <groupId>com.typesafe.akka</groupId>
           <artifactId>akka-actor_${akka.scala.version}</artifactId>
           <version>2.3.11</version>
@@ -70,18 +75,11 @@
       <version>${scala.version}</version>
     </dependency>
 
-  <dependency>
-      <groupId>com.github.dunnololda</groupId>
-      <artifactId>state_${publish.scala.version}</artifactId>
-      <version>1.4</version>
-  </dependency>
-
       <dependency>
           <groupId>com.github.dunnololda</groupId>
           <artifactId>mysimplelogger_${publish.scala.version}</artifactId>
           <version>1.4</version>
       </dependency>
-
 
     <!-- Test -->
     <dependency>

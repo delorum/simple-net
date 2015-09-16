@@ -1,7 +1,7 @@
 package com.github.dunnololda.simplenet.tests
 
 import com.github.dunnololda.simplenet._
-import com.github.dunnololda.state.State
+import play.api.libs.json.Json
 
 object EchoServer extends App {
   val server = TcpNetServer(port = 9000)
@@ -16,15 +16,21 @@ object EchoServer extends App {
 object ArithmeticServer extends App {
   val server = TcpNetServer(port = 9000)
 
+  case class ArithmeticTask(a:Float, b:Float, op:String)
+  implicit val ArithmeticTask_reader = Json.reads[ArithmeticTask]
+
   while(true) {
     server.waitNewEvent {
-      case NewMessage(client_id, State(("a", a:Float), ("b", b:Float), ("op", op:String))) =>
-        op match {
-          case "+" => server.sendToClient(client_id, State("result" -> (a + b)))
-          case "-" => server.sendToClient(client_id, State("result" -> (a - b)))
-          case "*" => server.sendToClient(client_id, State("result" -> (a * b)))
-          case "/" => server.sendToClient(client_id, State("result" -> (a / b)))  // no division by zero checking to keep example simple
-          case _   => server.sendToClient(client_id, State("result" -> ("unknown op: " + op)))
+      case NewMessage(client_id, message) =>
+        message.validate[ArithmeticTask].asOpt.foreach {
+          case ArithmeticTask(a, b, op) =>
+            op match {
+              case "+" => server.sendToClient(client_id, Json.obj("result" -> (a + b)))
+              case "-" => server.sendToClient(client_id, Json.obj("result" -> (a - b)))
+              case "*" => server.sendToClient(client_id, Json.obj("result" -> (a * b)))
+              case "/" => server.sendToClient(client_id, Json.obj("result" -> (a / b)))  // no division by zero checking to keep example simple
+              case _   => server.sendToClient(client_id, Json.obj("result" -> ("unknown op: " + op)))
+            }
         }
     }
   }
@@ -32,6 +38,9 @@ object ArithmeticServer extends App {
 
 object ArithmeticClient extends App {
   val client = TcpNetClient("localhost", 9000, 0)
+
+  case class ServerAnswer(result:Float)
+  private implicit val ServerAnswer_reader = Json.reads[ServerAnswer]
 
   while(true) {
     val (a, b) = ((math.random*100).toFloat, (math.random*100).toFloat)
@@ -42,10 +51,13 @@ object ArithmeticClient extends App {
       case 3 => if (b != 0) ("/", a/b) else ("+", a+b)
       case _ => ("+", a+b)
     }
-    client.send(State("a" -> a, "b" -> b, "op" -> op))
+    client.send(Json.obj("a" -> a, "b" -> b, "op" -> op))
     client.waitNewEvent {
-      case NewServerMessage(State(("result", server_answer:Float))) =>
-        println("answer: "+answer+"; server answer: "+server_answer)
+      case NewServerMessage(message) =>
+        message.validate[ServerAnswer].asOpt.foreach {
+          case ServerAnswer(result) =>
+            println("answer: "+answer+"; server answer: "+result)
+        }
     }
     Thread.sleep(5000)
   }

@@ -1,54 +1,57 @@
 package com.github.dunnololda.simplenet
 
-import akka.actor.{Props, ActorSystem, ActorRef, Actor}
+import java.io.{BufferedReader, InputStreamReader, OutputStreamWriter, PrintWriter}
 import java.net.Socket
-import java.io.{InputStreamReader, BufferedReader, OutputStreamWriter, PrintWriter}
-import com.github.dunnololda.mysimplelogger.MySimpleLogger
-import com.github.dunnololda.state.State
 
-import scala.concurrent.duration._
-import concurrent.Await
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.pattern.ask
+import com.github.dunnololda.mysimplelogger.MySimpleLogger
+import play.api.libs.json.{JsBoolean, JsObject, JsValue, Json}
+
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 object TcpNetClient {
-  def apply(address:String, port:Int, ping_timeout:Long = 0) = new TcpNetClient(address, port, ping_timeout)
+  def apply(address: String, port: Int, ping_timeout: Long = 0) = new TcpNetClient(address, port, ping_timeout)
 }
 
-class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) {
+class TcpNetClient(val address: String, val port: Int, val ping_timeout: Long = 0) {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val connection_listener = ActorSystem("netclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
   private val connection_handler = connection_listener.actorOf(Props(new Actor {
-    private var is_connected      = false
-    private var socket:Socket     = _
-    private var out:PrintWriter   = _
-    private var in:BufferedReader = _
+    private var is_connected = false
+    private var socket: Socket = _
+    private var out: PrintWriter = _
+    private var in: BufferedReader = _
 
     private val network_events = collection.mutable.ArrayBuffer[NetworkEvent]()
-    private var event_waiter:Option[ActorRef] = None
-    private def processNetworkEvent(event:NetworkEvent) {
+    private var event_waiter: Option[ActorRef] = None
+
+    private def processNetworkEvent(event: NetworkEvent) {
       if (event_waiter.nonEmpty) {
         event_waiter.get ! event
         event_waiter = None
       } else network_events += event
     }
 
-    private var connection_waiter:Option[ActorRef] = None
+    private var connection_waiter: Option[ActorRef] = None
+
     private def connect() {
       is_connected = false
       try {
         socket = new Socket(address, port)
-        out    = new PrintWriter(new OutputStreamWriter(socket.getOutputStream, "UTF-8"))
-        in     = new BufferedReader(new InputStreamReader(socket.getInputStream, "UTF-8"))
+        out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream, "UTF-8"))
+        in = new BufferedReader(new InputStreamReader(socket.getInputStream, "UTF-8"))
         is_connected = true
-        log.info("connected to server "+address+" at port "+port)
+        log.info("connected to server " + address + " at port " + port)
         processNetworkEvent(ServerConnected)
         if (connection_waiter.nonEmpty) {
           connection_waiter.get ! true
           connection_waiter = None
         }
       } catch {
-        case e:Exception =>
+        case e: Exception =>
           log.error(s"failed to connect to server $address at port $port:", e)
       }
     }
@@ -81,8 +84,8 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
           if (in.ready) {
             try {
               val message = in.readLine
-              val received_data = State.fromJsonStringOrDefault(message, State("raw" -> message))
-              if (!received_data.contains("ping")) {
+              val received_data = Json.parse(message)
+              if (!received_data.asOpt[JsObject].exists(_.keys.contains("ping"))) {
                 processNetworkEvent(NewServerMessage(received_data))
               }
               last_interaction_moment = System.currentTimeMillis()
@@ -93,7 +96,7 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
         } else connect()
       case Send(message) =>
         if (is_connected) {
-          out.println(message.toJsonString)
+          out.println(message.toString())
           out.flush()
           if (out.checkError()) {
             is_connected = false
@@ -102,7 +105,7 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
         } else connect()
       case Ping =>
         if (System.currentTimeMillis() - last_interaction_moment > ping_timeout) {
-          out.println(State("ping").toJsonString)
+          out.println(JsObject(Seq("ping" -> JsBoolean(value = true))).toString())
           out.flush()
           if (out.checkError()) {
             is_connected = false
@@ -117,12 +120,12 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
         else sender ! network_events.remove(0)
       case WaitForEvent =>
         if (network_events.nonEmpty) sender ! network_events.remove(0)
-        else event_waiter = Some(sender)
+        else event_waiter = Some(sender())
       case IsConnected =>
         sender ! is_connected
       case WaitConnection =>
         if (is_connected) sender ! true
-        else connection_waiter = Some(sender)
+        else connection_waiter = Some(sender())
     }
   }))
 
@@ -131,17 +134,17 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
     if (func.isDefinedAt(event)) func(event)
   }
 
-  def fromNewEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]):T = {
+  def fromNewEventOrDefault[T](default: T)(func: PartialFunction[NetworkEvent, T]): T = {
     val event = Await.result(connection_handler.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else default
   }
 
-  def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]):T = {
+  def waitNewEvent[T](func: PartialFunction[NetworkEvent, T]): T = {
     val event = Await.result(connection_handler.ask(WaitForEvent)(timeout = 100.days), 100.days).asInstanceOf[NetworkEvent]
     if (func.isDefinedAt(event)) func(event) else waitNewEvent(func)
   }
 
-  def isConnected:Boolean = {
+  def isConnected: Boolean = {
     Await.result(connection_handler.ask(IsConnected)(timeout = 1.minute), 1.minute).asInstanceOf[Boolean]
   }
 
@@ -149,7 +152,7 @@ class TcpNetClient(val address:String, val port:Int, val ping_timeout:Long = 0) 
     Await.result(connection_handler.ask(WaitConnection)(timeout = 100.days), 100.days)
   }
 
-  def send(message: State) {
+  def send(message: JsValue) {
     connection_handler ! Send(message)
   }
 

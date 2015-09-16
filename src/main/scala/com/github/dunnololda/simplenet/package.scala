@@ -1,52 +1,87 @@
 package com.github.dunnololda
 
-import java.net.{InetAddress, DatagramSocket, ServerSocket}
+import java.net.{DatagramSocket, InetAddress, ServerSocket}
+
 import akka.actor.ActorRef
 import com.github.dunnololda.mysimplelogger.MySimpleLogger
-import com.github.dunnololda.state.State
+
+//import com.github.dunnololda.state.State
+
+import play.api.libs.json.JsValue
 
 package object simplenet {
+
   case object Listen
+
   case object Check
+
   case object Ping
-  case class Send(message: State)
+
+  case class Send(message: JsValue)
+
   case object Disconnect
+
   case object ClientIds
+
   case object IsConnected
+
   case object WaitConnection
+
   case object RetrieveEvent
+
   case object WaitForEvent
-  case class SendToClient(client_id: Long, message: State)
+
+  case class SendToClient(client_id: Long, message: JsValue)
+
   case class DisconnectClient(client_id: Long)
-  case class IgnoreEvents(enabled:Boolean)
+
+  case class IgnoreEvents(enabled: Boolean)
+
   case object IgnoreStatus
 
   case class NewConnection(client_id: Long, client: ActorRef)
 
   sealed abstract class NetworkEvent
+
   case class NewClient(client_id: Long) extends NetworkEvent
-  case class NewMessage(client_id: Long, message: State) extends NetworkEvent
+
+  case class NewMessage(client_id: Long, message: JsValue) extends NetworkEvent
+
   case class ClientDisconnected(client_id: Long) extends NetworkEvent
+
   case object ServerConnected extends NetworkEvent
+
   case object ServerDisconnected extends NetworkEvent
-  case class NewServerMessage(data:State) extends NetworkEvent
+
+  case class NewServerMessage(data: JsValue) extends NetworkEvent
+
   case object NoNewEvents extends NetworkEvent
 
-  case class UdpClientLocation(address:InetAddress, port:Int)
-  case class UdpClient(id:Long, location:UdpClientLocation, var last_interaction_moment:Long)
+  case class UdpClientLocation(address: InetAddress, port: Int)
+
+  case class UdpClient(id: Long, location: UdpClientLocation, var last_interaction_moment: Long)
 
   sealed abstract class UdpEvent
-  case class NewUdpConnection(client_id:Long) extends UdpEvent
-  case class NewUdpClientPacket(location:UdpClientLocation, message:String) extends UdpEvent
-  case class NewUdpServerPacket(message:String) extends UdpEvent
-  case class NewUdpClientData(client_id:Long, data:State) extends UdpEvent
-  case class NewUdpServerData(data:State) extends UdpEvent
-  case class UdpClientDisconnected(client_id:Long) extends UdpEvent
+
+  case class NewUdpConnection(client_id: Long) extends UdpEvent
+
+  case class NewUdpClientPacket(location: UdpClientLocation, message: String) extends UdpEvent
+
+  case class NewUdpServerPacket(message: String) extends UdpEvent
+
+  case class NewUdpClientData(client_id: Long, data: JsValue) extends UdpEvent
+
+  case class NewUdpServerData(data: JsValue) extends UdpEvent
+
+  case class UdpClientDisconnected(client_id: Long) extends UdpEvent
+
   case object UdpServerConnected extends UdpEvent
+
   case object UdpServerDisconnected extends UdpEvent
+
   case object NoNewUdpEvents extends UdpEvent
 
-  def nextAvailablePort(log:MySimpleLogger.MySimpleLogger, port: Int): Int = {
+  def nextAvailablePort(log: MySimpleLogger.MySimpleLogger, port: Int): Int = {
     def available(port: Int): Boolean = {
       // TODO: return Option[Int]: None if no available port found within some range
       var ss: ServerSocket = null
@@ -77,6 +112,7 @@ package object simplenet {
   }
 
   private var _client_id: Long = 0
+
   def nextClientId: Long = {
     _client_id += 1
     _client_id

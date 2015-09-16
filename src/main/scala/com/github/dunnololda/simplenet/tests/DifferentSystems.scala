@@ -24,7 +24,7 @@ class Actor1 extends Actor {
 
 class Actor2(other:ActorRef) extends Actor {
   import scala.concurrent.ExecutionContext.Implicits.global
-  context.system.scheduler.schedule(initialDelay = (0.seconds), interval = (10.seconds)) {
+  context.system.scheduler.schedule(initialDelay = 0.seconds, interval = 10.seconds) {
     other ! Message("hello!")
   }
 
