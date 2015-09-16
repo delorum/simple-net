@@ -35,18 +35,19 @@ class UdpNetServer(port: Int, val buffer_size: Int = 1024, val ping_timeout: Lon
   private def receive() {
     future {
       try {
-        server_socket.receive(receive_packet)
-        val location = UdpClientLocation(receive_packet.getAddress, receive_packet.getPort)
-        if (!receive_packet.getData.contains(delimiter)) {
-          log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
-          current_buffer_size += 1000
-          receive_data = new Array[Byte](current_buffer_size)
-          receive_packet = new DatagramPacket(receive_data, receive_data.length)
-        } else {
-          val message = new String(receive_packet.getData).takeWhile(c => c != delimiter)
-          udp_server_listener ! NewUdpClientPacket(location, message)
+        while(true) {
+          server_socket.receive(receive_packet)
+          val location = UdpClientLocation(receive_packet.getAddress, receive_packet.getPort)
+          if (!receive_packet.getData.contains(delimiter)) {
+            log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
+            current_buffer_size += 1000
+            receive_data = new Array[Byte](current_buffer_size)
+            receive_packet = new DatagramPacket(receive_data, receive_data.length)
+          } else {
+            val message = new String(receive_packet.getData).takeWhile(c => c != delimiter)
+            udp_server_listener ! NewUdpClientPacket(location, message)
+          }
         }
-        receive()
       } catch {
         case e: Exception =>
           log.error("error receiving data from server:", e) // likely we are just closed

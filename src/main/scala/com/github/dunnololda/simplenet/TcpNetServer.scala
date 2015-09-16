@@ -33,15 +33,16 @@ class TcpNetServer(port: Int, val ping_timeout: Long = 0) {
   private def serverSocketAccept() {
     future {
       try {
-        val socket = server_socket.accept()
-        val new_client_id = nextClientId
-        val new_client = connection_listener.actorOf(Props(new ConnectionHandler(new_client_id, socket, ping_timeout, client_handler)))
-        client_handler ! NewConnection(new_client_id, new_client)
+        while(true) {
+          val socket = server_socket.accept()
+          val new_client_id = nextClientId
+          val new_client = connection_listener.actorOf(Props(new ConnectionHandler(new_client_id, socket, ping_timeout, client_handler)))
+          client_handler ! NewConnection(new_client_id, new_client)
+        }
       } catch {
         case e: Exception =>
           log.error("error receiving data from server:", e) // likely we are just closed
       }
-      serverSocketAccept()
     }
   }
 
