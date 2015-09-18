@@ -2,8 +2,9 @@ package com.github.dunnololda.simplenet
 
 import java.net.{DatagramPacket, DatagramSocket}
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import akka.actor._
 import akka.pattern.ask
+import akka.util.Timeout
 import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import play.api.libs.json.{JsValue, Json}
 
@@ -12,50 +13,61 @@ import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent._
 import scala.concurrent.duration._
+import scala.util.{Failure, Success}
 
 object UdpNetServer {
-  def apply(port: Int, buffer_size: Int = 1024, ping_timeout: Long = 1000, check_timeout: Long = 10000, delimiter: Char = '#') =
-    new UdpNetServer(port, buffer_size, ping_timeout, check_timeout, delimiter)
+  def apply(port: Int, 
+            buffer_size: Int = 1024, 
+            ping_timeout: Long = 1000, 
+            check_if_offline_timeout: Long = 10000,
+            delimiter: Char = '#',
+            system:ActorSystem = ActorSystem("udpserver-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))) =
+    new UdpNetServer(port, buffer_size, ping_timeout, check_if_offline_timeout, delimiter, system)
 }
 
-class UdpNetServer(port: Int, val buffer_size: Int = 1024, val ping_timeout: Long = 1000, val check_timeout: Long = 10000, val delimiter: Char = '#') {
+class UdpNetServer(val port: Int, 
+                   val buffer_size: Int = 1024, 
+                   val ping_timeout: Long = 1000, 
+                   val check_if_offline_timeout: Long = 10000, 
+                   val delimiter: Char = '#',
+                   system:ActorSystem = ActorSystem("udpserver-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))) {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val listen_port = nextAvailablePort(log, port)
 
   def listenPort = listen_port
 
-  private val system = ActorSystem("udpserver-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
+  //private val system = ActorSystem("udpserver-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
   private val server_socket = new DatagramSocket(listen_port)
-  private val udp_server_listener = system.actorOf(Props(new UdpServerListener(server_socket, ping_timeout, check_timeout, delimiter)))
+  private val udp_server_listener = system.actorOf(Props(new UdpServerListener(server_socket, ping_timeout, check_if_offline_timeout, delimiter)))
   private var current_buffer_size = buffer_size
   private var receive_data = new Array[Byte](buffer_size)
   private var receive_packet = new DatagramPacket(receive_data, receive_data.length)
 
-  private def receive() {
-    future {
-      try {
-        while(true) {
-          server_socket.receive(receive_packet)
-          val location = UdpClientLocation(receive_packet.getAddress, receive_packet.getPort)
-          if (!receive_packet.getData.contains(delimiter)) {
-            log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
-            current_buffer_size += 1000
-            receive_data = new Array[Byte](current_buffer_size)
-            receive_packet = new DatagramPacket(receive_data, receive_data.length)
-          } else {
-            val message = new String(receive_packet.getData).takeWhile(c => c != delimiter)
-            udp_server_listener ! NewUdpClientPacket(location, message)
-          }
+  future {
+    try {
+      while(true) {
+        server_socket.receive(receive_packet)
+        val location = UdpClientLocation(receive_packet.getAddress, receive_packet.getPort)
+        if (!receive_packet.getData.contains(delimiter)) {
+          log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
+          current_buffer_size += 1000
+          receive_data = new Array[Byte](current_buffer_size)
+          receive_packet = new DatagramPacket(receive_data, receive_data.length)
+        } else {
+          val message = new String(receive_packet.getData).takeWhile(c => c != delimiter)
+          udp_server_listener ! NewUdpClientPacket(location, message)
         }
-      } catch {
-        case e: Exception =>
-          log.error("error receiving data from server:", e) // likely we are just closed
       }
+    } catch {
+      case e: Exception =>
+        if(isStopped) {
+          log.info("udp server socket closed")
+        } else {
+          log.error("error receiving data from server:", e) // likely we are just closed
+        }
     }
   }
-
-  receive()
 
   def sendToClient(client_id: Long, message: JsValue) {
     udp_server_listener ! SendToClient(client_id, message)
@@ -92,7 +104,42 @@ class UdpNetServer(port: Int, val buffer_size: Int = 1024, val ping_timeout: Lon
     Await.result(udp_server_listener.ask(ClientIds)(timeout = 1.minute), 1.minute).asInstanceOf[List[Long]]
   }
 
+  def addExternalHandler(external_handler:ActorRef): Unit = {
+    udp_server_listener ! AddExternalHandler(external_handler)
+  }
+
+  def removeExternalHandler(external_handler:ActorRef): Unit = {
+    udp_server_listener ! RemoveExternalHandler(external_handler)
+  }
+
+  def addExternalHandler(external_handler:ActorSelection): Unit = {
+    external_handler.resolveOne()(Timeout(5.seconds)).onComplete {
+      case Success(actor_ref) =>
+        udp_server_listener ! AddExternalHandler(actor_ref)
+      case Failure(error) =>
+        log.warn(s"addExternalHandler failed for actor_selection $external_handler", error)
+    }
+  }
+
+  def removeExternalHandler(external_handler:ActorSelection): Unit = {
+    external_handler.resolveOne()(Timeout(5.seconds)).onComplete {
+      case Success(actor_ref) =>
+        udp_server_listener ! RemoveExternalHandler(actor_ref)
+      case Failure(error) =>
+        log.warn(s"removeExternalHandler failed for actor_selection $external_handler", error)
+    }
+  }
+
+  private var _stop = false
+
+  def isStopped:Boolean = synchronized {
+    _stop
+  }
+
   def stop() {
+    synchronized {
+      _stop = true
+    }
     disconnectAll()
     system.shutdown()
     server_socket.close()
@@ -107,7 +154,7 @@ class UdpNetServer(port: Int, val buffer_size: Int = 1024, val ping_timeout: Lon
   }
 }
 
-private class UdpServerListener(server_socket: DatagramSocket, ping_timeout: Long, check_timeout: Long, delimiter: Char) extends Actor {
+private class UdpServerListener(server_socket: DatagramSocket, ping_timeout: Long, check_if_offline_timeout: Long, delimiter: Char) extends Actor {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val clients_by_id = mutable.HashMap[Long, UdpClient]()
@@ -115,12 +162,21 @@ private class UdpServerListener(server_socket: DatagramSocket, ping_timeout: Lon
 
   private val udp_events = ArrayBuffer[UdpEvent]()
   private var event_waiter: Option[ActorRef] = None
-
+  private val external_handlers = mutable.ArrayBuffer[ActorRef]()
+  
   private def processUdpEvent(event: UdpEvent) {
-    if (event_waiter.nonEmpty) {
-      event_waiter.get ! event
-      event_waiter = None
-    } else udp_events += event
+    if (external_handlers.nonEmpty) {
+      external_handlers.foreach(h => h ! event)
+      if (event_waiter.nonEmpty) {
+        event_waiter.get ! event
+        event_waiter = None
+      }
+    } else {
+      if (event_waiter.nonEmpty) {
+        event_waiter.get ! event
+        event_waiter = None
+      } else udp_events += event
+    }
   }
 
   override def preStart() {
@@ -132,9 +188,9 @@ private class UdpServerListener(server_socket: DatagramSocket, ping_timeout: Lon
       self ! Ping
     }
 
-    val checked_check_timeout = if (check_timeout > checked_ping_timeout) check_timeout else checked_ping_timeout * 10
-    context.system.scheduler.schedule(initialDelay = checked_check_timeout.milliseconds, interval = checked_check_timeout.milliseconds) {
-      self ! Check
+    val checked_check_if_offline_timeout = if (check_if_offline_timeout > checked_ping_timeout) check_if_offline_timeout else checked_ping_timeout * 10
+    context.system.scheduler.schedule(initialDelay = checked_check_if_offline_timeout.milliseconds, interval = checked_check_if_offline_timeout.milliseconds) {
+      self ! UdpCheckIfOffline
     }
   }
 
@@ -201,19 +257,19 @@ private class UdpServerListener(server_socket: DatagramSocket, ping_timeout: Lon
       clients_by_id.values.foreach(client => {
         _send("SN PING", client.location)
       })
-    case Check =>
+    case UdpCheckIfOffline =>
       clients_by_id.foreach {
-        case (_, client) => if (System.currentTimeMillis() - client.last_interaction_moment > check_timeout) {
+        case (_, client) => if (System.currentTimeMillis() - client.last_interaction_moment > check_if_offline_timeout) {
           _send("SN BYE", client.location)
           processUdpEvent(UdpClientDisconnected(client.id))
           log.info(s"client from ${client.location} disconnected")
         }
       }
       clients_by_id.retain {
-        case (_, client) => System.currentTimeMillis() - client.last_interaction_moment <= check_timeout
+        case (_, client) => System.currentTimeMillis() - client.last_interaction_moment <= check_if_offline_timeout
       }
       clients_by_location.retain {
-        case (_, client) => System.currentTimeMillis() - client.last_interaction_moment <= check_timeout
+        case (_, client) => System.currentTimeMillis() - client.last_interaction_moment <= check_if_offline_timeout
       }
     case DisconnectClient(client_id) =>
       clients_by_id.get(client_id) match {
@@ -246,5 +302,15 @@ private class UdpServerListener(server_socket: DatagramSocket, ping_timeout: Lon
       ignore_mode = enabled
     case IgnoreStatus =>
       sender ! ignore_mode
+    case AddExternalHandler(external_handler) =>
+      external_handlers += external_handler
+      if (udp_events.nonEmpty) {
+        udp_events.foreach(event => external_handler ! event)
+        udp_events.clear()
+      }
+    case RemoveExternalHandler(external_handler) =>
+      external_handlers -= external_handler
+    case x =>
+      log.warn(s"UdpServerListener unknown event $x")
   }
 }

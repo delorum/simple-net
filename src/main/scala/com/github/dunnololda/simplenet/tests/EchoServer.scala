@@ -8,7 +8,7 @@ object EchoServer extends App {
 
   while(true) {
     server.waitNewEvent {
-      case NewMessage(client_id, message) => server.sendToAll(message)
+      case NewTcpClientData(client_id, message) => server.sendToAll(message)
     }
   }
 }
@@ -21,7 +21,7 @@ object ArithmeticServer extends App {
 
   while(true) {
     server.waitNewEvent {
-      case NewMessage(client_id, message) =>
+      case NewTcpClientData(client_id, message) =>
         message.validate[ArithmeticTask].asOpt.foreach {
           case ArithmeticTask(a, b, op) =>
             op match {
@@ -53,7 +53,7 @@ object ArithmeticClient extends App {
     }
     client.send(Json.obj("a" -> a, "b" -> b, "op" -> op))
     client.waitNewEvent {
-      case NewServerMessage(message) =>
+      case NewTcpServerData(message) =>
         message.validate[ServerAnswer].asOpt.foreach {
           case ServerAnswer(result) =>
             println("answer: "+answer+"; server answer: "+result)

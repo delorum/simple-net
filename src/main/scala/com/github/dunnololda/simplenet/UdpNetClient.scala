@@ -2,36 +2,50 @@ package com.github.dunnololda.simplenet
 
 import java.net.{DatagramPacket, DatagramSocket, InetAddress}
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import akka.actor._
 import akka.pattern.ask
+import akka.util.Timeout
 import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import play.api.libs.json.{JsValue, Json}
 
-//import com.github.dunnololda.state.State
+import scala.collection.mutable
 
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent._
 import scala.concurrent.duration._
+import scala.util.{Failure, Success}
 
 object UdpNetClient {
-  def apply(address: String, port: Int, buffer_size: Int = 1024, ping_timeout: Long = 1000, check_timeout: Long = 10000, delimiter: Char = '#') =
-    new UdpNetClient(address, port, buffer_size, ping_timeout, check_timeout, delimiter)
+  def apply(address: String,
+            port: Int,
+            buffer_size: Int = 1024,
+            ping_timeout: Long = 1000,
+            check_if_offline_timeout: Long = 10000,
+            delimiter: Char = '#',
+            system:ActorSystem = ActorSystem("udpclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))) =
+    new UdpNetClient(address, port, buffer_size, ping_timeout, check_if_offline_timeout, delimiter, system)
 }
 
-class UdpNetClient(val address: String, val port: Int, val buffer_size: Int = 1024, val ping_timeout: Long = 0, val check_timeout: Long = 0, val delimiter: Char = '#') {
+class UdpNetClient(val address: String, 
+                   val port: Int, 
+                   val buffer_size: Int = 1024, 
+                   val ping_timeout: Long = 0, 
+                   val check_if_offline_timeout: Long = 0, 
+                   val delimiter: Char = '#',
+                   system:ActorSystem = ActorSystem("udpclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))) {
   private val log = MySimpleLogger(this.getClass.getName)
   private val client_socket = new DatagramSocket()
 
-  private val system = ActorSystem("udpclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
-  private val udp_client_listener = system.actorOf(Props(new UdpClientListener(client_socket, address, port, ping_timeout, check_timeout, delimiter)))
+  //private val system = ActorSystem("udpclient-listener-" + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date()))
+  private val udp_client_listener = system.actorOf(Props(new UdpClientListener(client_socket, address, port, ping_timeout, check_if_offline_timeout, delimiter)))
   private var current_buffer_size = buffer_size
   private var receive_data = new Array[Byte](buffer_size)
   private var receive_packet = new DatagramPacket(receive_data, receive_data.length)
 
-  private def receive() {
-    future {
-      try {
+  future {
+    try {
+      while(true) {
         client_socket.receive(receive_packet)
         if (!receive_packet.getData.contains(delimiter)) {
           log.warn("received message is larger than buffer! Increasing buffer by 1000 bytes...")
@@ -42,15 +56,16 @@ class UdpNetClient(val address: String, val port: Int, val buffer_size: Int = 10
           val message = new String(receive_packet.getData.takeWhile(c => c != delimiter))
           udp_client_listener ! NewUdpServerPacket(message)
         }
-        receive()
-      } catch {
-        case e: Exception =>
-          log.error("error receiving data from server:", e) // likely we are just closed
       }
+    } catch {
+      case e: Exception =>
+        if(isStopped) {
+          log.info("udp client socket closed")
+        } else {
+          log.error("error receiving data from server:", e) // likely we are just closed
+        }
     }
   }
-
-  receive()
 
   def newEvent(func: PartialFunction[UdpEvent, Any]) = {
     val event = Await.result(udp_client_listener.ask(RetrieveEvent)(timeout = 1.minute), 1.minute).asInstanceOf[UdpEvent]
@@ -83,7 +98,16 @@ class UdpNetClient(val address: String, val port: Int, val buffer_size: Int = 10
     Await.result(udp_client_listener.ask(Disconnect)(timeout = 100.days), 100.days)
   }
 
+  private var _stop = false
+
+  def isStopped:Boolean = synchronized {
+    _stop
+  }
+
   def stop() {
+    synchronized {
+      _stop = true
+    }
     disconnect()
     system.shutdown()
     client_socket.close()
@@ -96,25 +120,60 @@ class UdpNetClient(val address: String, val port: Int, val buffer_size: Int = 10
   def ignoreEvents_=(enabled: Boolean) {
     udp_client_listener ! IgnoreEvents(enabled)
   }
+
+  def addExternalHandler(external_handler:ActorRef): Unit = {
+    udp_client_listener ! AddExternalHandler(external_handler)
+  }
+
+  def removeExternalHandler(external_handler:ActorRef): Unit = {
+    udp_client_listener ! RemoveExternalHandler(external_handler)
+  }
+
+  def addExternalHandler(external_handler:ActorSelection): Unit = {
+    external_handler.resolveOne()(Timeout(5.seconds)).onComplete {
+      case Success(actor_ref) =>
+        udp_client_listener ! AddExternalHandler(actor_ref)
+      case Failure(error) =>
+        log.warn(s"addExternalHandler failed for actor_selection $external_handler", error)
+    }
+  }
+
+  def removeExternalHandler(external_handler:ActorSelection): Unit = {
+    external_handler.resolveOne()(Timeout(5.seconds)).onComplete {
+      case Success(actor_ref) =>
+        udp_client_listener ! RemoveExternalHandler(actor_ref)
+      case Failure(error) =>
+        log.warn(s"removeExternalHandler failed for actor_selection $external_handler", error)
+    }
+  }
 }
 
-private class UdpClientListener(client_socket: DatagramSocket, address: String, port: Int, ping_timeout: Long, check_timeout: Long, delimiter: Char) extends Actor {
+private class UdpClientListener(client_socket: DatagramSocket, address: String, port: Int, ping_timeout: Long, check_if_offline_timeout: Long, delimiter: Char) extends Actor {
   private val log = MySimpleLogger(this.getClass.getName)
 
   private val ip_address = InetAddress.getByName(address)
 
   private val udp_events = ArrayBuffer[UdpEvent]()
   private var event_waiter: Option[ActorRef] = None
+  private val external_handlers = mutable.ArrayBuffer[ActorRef]()
 
   private var is_connected = false
   private var last_interaction_moment = 0l
   private var connection_waiter: Option[ActorRef] = None
 
   private def processUdpEvent(event: UdpEvent) {
-    if (event_waiter.nonEmpty) {
-      event_waiter.get ! event
-      event_waiter = None
-    } else udp_events += event
+    if (external_handlers.nonEmpty) {
+      external_handlers.foreach(h => h ! event)
+      if (event_waiter.nonEmpty) {
+        event_waiter.get ! event
+        event_waiter = None
+      }
+    } else {
+      if (event_waiter.nonEmpty) {
+        event_waiter.get ! event
+        event_waiter = None
+      } else udp_events += event
+    }
   }
 
   private def processConnectionWaiter() {
@@ -133,9 +192,9 @@ private class UdpClientListener(client_socket: DatagramSocket, address: String, 
       self ! Ping
     }
 
-    val checked_check_timeout = if (check_timeout > checked_ping_timeout) check_timeout else checked_ping_timeout * 10
+    val checked_check_timeout = if (check_if_offline_timeout > checked_ping_timeout) check_if_offline_timeout else checked_ping_timeout * 10
     context.system.scheduler.schedule(initialDelay = checked_check_timeout.milliseconds, interval = checked_check_timeout.milliseconds) {
-      self ! Check
+      self ! UdpCheckIfOffline
     }
   }
 
@@ -177,8 +236,8 @@ private class UdpClientListener(client_socket: DatagramSocket, address: String, 
       _send(message.toString())
     case Ping =>
       _send("SN PING")
-    case Check =>
-      if (System.currentTimeMillis() - last_interaction_moment > check_timeout) {
+    case UdpCheckIfOffline =>
+      if (System.currentTimeMillis() - last_interaction_moment > check_if_offline_timeout) {
         is_connected = false
         processUdpEvent(UdpServerDisconnected)
       }
@@ -202,5 +261,15 @@ private class UdpClientListener(client_socket: DatagramSocket, address: String, 
       ignore_mode = enabled
     case IgnoreStatus =>
       sender ! ignore_mode
+    case AddExternalHandler(external_handler) =>
+      external_handlers += external_handler
+      if (udp_events.nonEmpty) {
+        udp_events.foreach(event => external_handler ! event)
+        udp_events.clear()
+      }
+    case RemoveExternalHandler(external_handler) =>
+      external_handlers -= external_handler
+    case x =>
+      log.warn(s"UdpServerListener unknown event $x")
   }
 }

@@ -35,7 +35,7 @@ class AppTest {
         val question = Json.obj("a" -> i1, "b" -> i2, "op" -> str_op)
         client.send(question)
         server.waitNewEvent {
-          case NewMessage(client_id, client_question) =>
+          case NewTcpClientData(client_id, client_question) =>
             client_question.validate[ClientQuestion].asOpt match {
               case Some(ClientQuestion(a, b, op)) =>
                 op match {
@@ -50,7 +50,7 @@ class AppTest {
             }
         }
         client.waitNewEvent {
-          case NewServerMessage(server_answer) =>
+          case NewTcpServerData(server_answer) =>
             server_answer.validate[ServerAnswer].asOpt match {
               case Some(ServerAnswer(result, error)) =>
                 assertTrue(result.exists(r => r == answer))

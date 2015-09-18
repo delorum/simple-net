@@ -13,7 +13,9 @@ package object simplenet {
 
   case object Listen
 
-  case object Check
+  case object TcpCheckNewData
+
+  case object UdpCheckIfOffline
 
   case object Ping
 
@@ -41,21 +43,25 @@ package object simplenet {
 
   case class NewConnection(client_id: Long, client: ActorRef)
 
-  sealed abstract class NetworkEvent
+  case class AddExternalHandler(external_handler:ActorRef)
 
-  case class NewClient(client_id: Long) extends NetworkEvent
+  case class RemoveExternalHandler(external_handler:ActorRef)
 
-  case class NewMessage(client_id: Long, message: JsValue) extends NetworkEvent
+  sealed abstract class TcpEvent
 
-  case class ClientDisconnected(client_id: Long) extends NetworkEvent
+  case class NewTcpConnection(client_id: Long) extends TcpEvent
 
-  case object ServerConnected extends NetworkEvent
+  case class NewTcpClientData(client_id: Long, data: JsValue) extends TcpEvent
 
-  case object ServerDisconnected extends NetworkEvent
+  case class TcpClientDisconnected(client_id: Long) extends TcpEvent
 
-  case class NewServerMessage(data: JsValue) extends NetworkEvent
+  case object TcpServerConnected extends TcpEvent
 
-  case object NoNewEvents extends NetworkEvent
+  case object TcpServerDisconnected extends TcpEvent
+
+  case class NewTcpServerData(data: JsValue) extends TcpEvent
+
+  case object NoNewTcpEvents extends TcpEvent
 
   case class UdpClientLocation(address: InetAddress, port: Int)
 

@@ -17,7 +17,7 @@ object DifferentSystems extends App {
 class Actor1 extends Actor {
   def receive = {
     case Message(message) =>
-      println("received: "+message)
+      println("[actor1] received: "+message)
       sender ! ThankYou
   }
 }
@@ -30,6 +30,6 @@ class Actor2(other:ActorRef) extends Actor {
 
   def receive = {
     case ThankYou =>
-      println("received thankyou")
+      println("[actor2] received thankyou")
   }
 }
