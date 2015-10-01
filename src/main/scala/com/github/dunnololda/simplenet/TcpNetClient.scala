@@ -10,7 +10,7 @@ import com.github.dunnololda.mysimplelogger.MySimpleLogger
 import play.api.libs.json.{JsBoolean, JsObject, JsValue, Json}
 
 import scala.collection.mutable
-import scala.concurrent.Await
+import scala.concurrent.{ExecutionContext, Await}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
@@ -227,7 +227,7 @@ class TcpNetClient(val address: String,
         connection_handler ! AddExternalHandler(actor_ref)
       case Failure(error) =>
         log.warn(s"addExternalHandler failed for actor_selection $external_handler", error)
-    }
+    }(ExecutionContext.global)
   }
 
   def removeExternalHandler(external_handler:ActorSelection): Unit = {
@@ -236,6 +236,6 @@ class TcpNetClient(val address: String,
         connection_handler ! RemoveExternalHandler(actor_ref)
       case Failure(error) =>
         log.warn(s"removeExternalHandler failed for actor_selection $external_handler", error)
-    }
+    }(ExecutionContext.global)
   }
 }
