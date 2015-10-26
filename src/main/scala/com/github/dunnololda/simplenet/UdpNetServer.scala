@@ -194,6 +194,10 @@ private class UdpServerListener(server_socket: DatagramSocket, ping_timeout: Lon
     }
   }
 
+  override def postStop(): Unit = {
+    log.info(s"actor ${self.path.toString} died!")
+  }
+
   private def _send(message: String, location: UdpClientLocation) {
     val send_data = new StringBuffer(message).append(delimiter).toString
     val send_packet = new DatagramPacket(send_data.getBytes, send_data.length, location.address, location.port)
